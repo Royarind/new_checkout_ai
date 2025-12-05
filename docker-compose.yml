@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  checkout-ai:
+    build: .
+    ports:
+      - "8050:8050"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/venv
+    environment:
+      - PYTHONUNBUFFERED=1
+    # IPC host is often needed for Playwright in Docker to avoid shared memory issues
+    ipc: host

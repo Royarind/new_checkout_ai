@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Playwright
+.playwright/
+playwright-report/
+test-results/
+
+# Screenshots
+screenshots/
+*.png
+*.jpg
+*.jpeg
+
+# Backups
+Backups/
+*.bak
+*.backup
+
+# User data
+.chkout_profile.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Variant debug
+variant_debug/
