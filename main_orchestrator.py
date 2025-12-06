@@ -676,7 +676,7 @@ async def run_full_flow_core(json_data: dict) -> dict:
                     logger.info(f"ORCHESTRATOR: Agent history:")
                     for h in result['history'][-3:]:  # Last 3 iterations
                         logger.info(f"  Step: {h['step'][:100]}")
-                        logger.info(f"  Feedback: {h['feedback'][:100]}")
+                        logger.info(f"  Result: {h.get('result', h.get('feedback', 'No result'))[:100]}")
                 
                 return {
                     'success': False,
@@ -698,7 +698,7 @@ async def run_full_flow_core(json_data: dict) -> dict:
             from src.checkout_ai.payments import PaymentAutomationService
             
             # Get user_id from json_input
-            user_id = json_input.get('user_id')
+            user_id = json_data.get('user_id')
             
             if not user_id:
                 logger.warning("ORCHESTRATOR: No user_id provided, skipping payment automation")
@@ -760,7 +760,7 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 order_id = await PaymentAutomationService.save_order_to_history(
                     user_id=user_id,
                     order_data=confirmation,
-                    checkout_json=json_input
+                    checkout_json=json_data
                 )
                 
                 logger.info(f"ORCHESTRATOR: Order saved to database with ID: {order_id}")

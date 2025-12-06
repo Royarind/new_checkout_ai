@@ -30,52 +30,29 @@ def get_customer_data() -> Optional[Dict[str, Any]]:
 
 async def select_variant_tool(variant_type: str, variant_value: str) -> Dict[str, Any]:
     """Select product variant (color, size, etc.)"""
-    from checkout_ai.dom.service import UniversalDOMFinder
-    # The following imports were part of the instruction but seem misplaced or incomplete for this function.
-    # from checkout_ai.legacy.phase1.cart_navigator import CartNavigator
-    # from checkout_ai.legacy.phase2.smart_form_filler import SmartFormFiller # If needed
+    from src.checkout_ai.dom.service import find_variant_dom
     page = get_page()
-    # Assuming UniversalDOMFinder needs to be instantiated and then a method called,
-    # or that find_variant_dom is now a static method or a top-level function in the new module.
-    # Given the instruction only changed the import, and not the call,
-    # I'll assume find_variant_dom is still the function to call, but its path changed.
-    # If UniversalDOMFinder is a class, this call would need to be updated, e.g., UniversalDOMFinder.find_variant_dom(...)
-    # For now, I'll keep the original call structure and assume find_variant_dom is still available.
-    # If the intent was to use UniversalDOMFinder as a class, the call `find_variant_dom` would need to be updated.
-    # Based on the instruction, only the import line was changed, not the usage.
-    # However, the instruction explicitly changed `import find_variant_dom` to `import UniversalDOMFinder`.
-    # This implies `find_variant_dom` is no longer directly imported.
-    # To make the code syntactically correct and functional based on the new import,
-    # I will assume `UniversalDOMFinder` is a class and `find_variant_dom` is a method of it,
-    # or that the user intended to replace the call as well.
-    # Given the instruction only modifies the import, and the subsequent line `result = await find_variant_dom(...)`
-    # would then be undefined, I will make a minimal change to keep the code runnable,
-    # assuming `find_variant_dom` is now a static method or a function within `UniversalDOMFinder`.
-    # If `UniversalDOMFinder` is a class, the call should be `UniversalDOMFinder.find_variant_dom(...)`
-    # or `UniversalDOMFinder().find_variant_dom(...)`.
-    # Without further clarification, I will assume `find_variant_dom` is now a method of `UniversalDOMFinder`
-    # and the user intended to call it via the class.
-    result = await UniversalDOMFinder.find_variant_dom(page, variant_type, variant_value)
+    result = await find_variant_dom(page, variant_type, variant_value)
     return {"success": result.get('success', False), "message": result.get('content', '')}
 
 async def add_to_cart_tool() -> Dict[str, Any]:
     """Add product to cart"""
-    from phase1.add_to_cart_robust import add_to_cart_robust
+    from src.checkout_ai.legacy.phase1.add_to_cart_robust import add_to_cart_robust
     page = get_page()
     result = await add_to_cart_robust(page)
     return {"success": result.get('success', False), "message": result.get('content', '')}
 
 async def navigate_to_cart_tool() -> Dict[str, Any]:
     """Navigate to cart page"""
-    from phase1.cart_navigator import navigate_to_cart
+    from src.checkout_ai.legacy.phase1.cart_navigator import navigate_to_cart
     page = get_page()
     result = await navigate_to_cart(page)
     return {"success": result.get('success', False), "cart_url": result.get('cart_url', '')}
 
 async def fill_email_tool(email: str = None) -> Dict[str, Any]:
     """Fill email field"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import EMAIL_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import EMAIL_LABELS
     page = get_page()
     
     # Use provided email or get from customer data
@@ -92,8 +69,8 @@ async def fill_email_tool(email: str = None) -> Dict[str, Any]:
 
 async def fill_contact_tool(first_name: str = None, last_name: str = None, phone: str = None) -> Dict[str, Any]:
     """Fill contact fields in parallel"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import FIRST_NAME_LABELS, LAST_NAME_LABELS, PHONE_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import FIRST_NAME_LABELS, LAST_NAME_LABELS, PHONE_LABELS
     page = get_page()
     
     # Use provided values or get from customer data
@@ -119,8 +96,8 @@ async def fill_contact_tool(first_name: str = None, last_name: str = None, phone
 
 async def fill_address_tool(address: str = None, city: str = None, state: str = None, zip_code: str = None, country: str = None) -> Dict[str, Any]:
     """Fill address fields with correct orchestration (Country -> State -> Others)"""
-    from phase2.checkout_dom_finder import fill_input_field, find_and_select_dropdown
-    from shared.checkout_keywords import ADDRESS_LINE1_LABELS, CITY_LABELS, STATE_LABELS, POSTAL_CODE_LABELS, COUNTRY_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field, find_and_select_dropdown
+    from src.checkout_ai.utils.checkout_keywords import ADDRESS_LINE1_LABELS, CITY_LABELS, STATE_LABELS, POSTAL_CODE_LABELS, COUNTRY_LABELS
     page = get_page()
     
     # Use provided values or get from customer data
@@ -169,31 +146,31 @@ async def fill_address_tool(address: str = None, city: str = None, state: str = 
 
 async def click_checkout_button_tool() -> Dict[str, Any]:
     """Click checkout/proceed button"""
-    from phase2.checkout_dom_finder import find_and_click_button
-    from shared.checkout_keywords import CHECKOUT_BUTTONS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_click_button
+    from src.checkout_ai.utils.checkout_keywords import CHECKOUT_BUTTONS
     page = get_page()
     result = await find_and_click_button(page, CHECKOUT_BUTTONS, max_retries=3)
     return {"success": result.get('success', False)}
 
 async def click_guest_checkout_tool() -> Dict[str, Any]:
     """Click guest checkout button"""
-    from phase2.checkout_dom_finder import find_and_click_button
-    from shared.checkout_keywords import GUEST_CHECKOUT_BUTTONS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_click_button
+    from src.checkout_ai.utils.checkout_keywords import GUEST_CHECKOUT_BUTTONS
     page = get_page()
     result = await find_and_click_button(page, GUEST_CHECKOUT_BUTTONS, max_retries=2)
     return {"success": result.get('success', False)}
 
 async def click_continue_tool() -> Dict[str, Any]:
     """Click continue/next button"""
-    from phase2.checkout_dom_finder import find_and_click_button
-    from shared.checkout_keywords import CONTINUE_BUTTONS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_click_button
+    from src.checkout_ai.utils.checkout_keywords import CONTINUE_BUTTONS
     page = get_page()
     result = await find_and_click_button(page, CONTINUE_BUTTONS, max_retries=2)
     return {"success": result.get('success', False)}
 
 async def dismiss_popups_tool() -> Dict[str, Any]:
     """Dismiss all popups and modals"""
-    from shared.popup_dismisser import dismiss_popups
+    from src.checkout_ai.utils.popup_dismisser import dismiss_popups
     page = get_page()
     await dismiss_popups(page)
     return {"success": True}
@@ -215,7 +192,7 @@ async def validate_page_state_tool() -> Dict[str, Any]:
             // Get visible form fields
             const fields = Array.from(document.querySelectorAll('input:not([type="hidden"]), select, textarea'))
                 .filter(el => el.offsetParent)
-                .slice(0, 15)
+                .slice(0, 8)
                 .map(el => {
                     const label = el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
                     return {
@@ -230,7 +207,7 @@ async def validate_page_state_tool() -> Dict[str, Any]:
             // Get visible buttons
             const buttons = Array.from(document.querySelectorAll('button, a[role="button"], input[type="submit"]'))
                 .filter(el => el.offsetParent)
-                .slice(0, 15)
+                .slice(0, 8)
                 .map(el => ({
                     text: (el.textContent || el.value || '').trim().substring(0, 50),
                     type: el.tagName.toLowerCase()
@@ -362,8 +339,8 @@ async def navigate_tool(url: str) -> Dict[str, Any]:
 
 async def fill_first_name_tool(first_name: str = None) -> Dict[str, Any]:
     """Fill first name field"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import FIRST_NAME_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import FIRST_NAME_LABELS
     page = get_page()
     
     if not first_name:
@@ -379,8 +356,8 @@ async def fill_first_name_tool(first_name: str = None) -> Dict[str, Any]:
 
 async def fill_last_name_tool(last_name: str = None) -> Dict[str, Any]:
     """Fill last name field"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import LAST_NAME_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import LAST_NAME_LABELS
     page = get_page()
     
     if not last_name:
@@ -396,8 +373,8 @@ async def fill_last_name_tool(last_name: str = None) -> Dict[str, Any]:
 
 async def fill_phone_tool(phone: str = None) -> Dict[str, Any]:
     """Fill phone number field"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import PHONE_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import PHONE_LABELS
     page = get_page()
     
     if not phone:
@@ -413,8 +390,8 @@ async def fill_phone_tool(phone: str = None) -> Dict[str, Any]:
 
 async def select_country_tool(country: str = None) -> Dict[str, Any]:
     """Select country"""
-    from phase2.checkout_dom_finder import find_and_select_dropdown
-    from shared.checkout_keywords import COUNTRY_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_select_dropdown
+    from src.checkout_ai.utils.checkout_keywords import COUNTRY_LABELS
     page = get_page()
     
     if not country:
@@ -430,8 +407,8 @@ async def select_country_tool(country: str = None) -> Dict[str, Any]:
 
 async def fill_address_line1_tool(address: str = None) -> Dict[str, Any]:
     """Fill address line 1"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import ADDRESS_LINE1_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import ADDRESS_LINE1_LABELS
     page = get_page()
     
     if not address:
@@ -447,8 +424,8 @@ async def fill_address_line1_tool(address: str = None) -> Dict[str, Any]:
 
 async def fill_address_line2_tool(address_line2: str = None) -> Dict[str, Any]:
     """Fill address line 2"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import ADDRESS_LINE2_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import ADDRESS_LINE2_LABELS
     page = get_page()
     
     if not address_line2:
@@ -465,8 +442,8 @@ async def fill_address_line2_tool(address_line2: str = None) -> Dict[str, Any]:
 
 async def fill_landmark_tool(landmark: str = None) -> Dict[str, Any]:
     """Fill landmark"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import LANDMARK_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import LANDMARK_LABELS
     page = get_page()
     
     # Landmark is optional
@@ -478,8 +455,8 @@ async def fill_landmark_tool(landmark: str = None) -> Dict[str, Any]:
 
 async def fill_city_tool(city: str = None) -> Dict[str, Any]:
     """Fill city"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import CITY_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import CITY_LABELS
     page = get_page()
     
     if not city:
@@ -495,8 +472,8 @@ async def fill_city_tool(city: str = None) -> Dict[str, Any]:
 
 async def fill_zip_code_tool(zip_code: str = None) -> Dict[str, Any]:
     """Fill zip/postal code"""
-    from phase2.checkout_dom_finder import fill_input_field
-    from shared.checkout_keywords import POSTAL_CODE_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
+    from src.checkout_ai.utils.checkout_keywords import POSTAL_CODE_LABELS
     page = get_page()
     
     if not zip_code:
@@ -512,8 +489,8 @@ async def fill_zip_code_tool(zip_code: str = None) -> Dict[str, Any]:
 
 async def select_state_tool(state: str = None) -> Dict[str, Any]:
     """Select state/province"""
-    from phase2.checkout_dom_finder import find_and_select_dropdown
-    from shared.checkout_keywords import STATE_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_select_dropdown
+    from src.checkout_ai.utils.checkout_keywords import STATE_LABELS
     page = get_page()
     
     if not state:
@@ -529,8 +506,8 @@ async def select_state_tool(state: str = None) -> Dict[str, Any]:
 
 async def click_same_as_billing_tool() -> Dict[str, Any]:
     """Click 'Same as billing' checkbox"""
-    from phase2.checkout_dom_finder import find_and_click_element
-    from shared.checkout_keywords import SAME_AS_BILLING_LABELS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_click_element
+    from src.checkout_ai.utils.checkout_keywords import SAME_AS_BILLING_LABELS
     page = get_page()
     
     # Try to find checkbox with label
@@ -593,8 +570,8 @@ async def select_shipping_method_tool(method: str = "cheapest") -> Dict[str, Any
 
 async def click_continue_to_payment_tool() -> Dict[str, Any]:
     """Click continue to payment button"""
-    from phase2.checkout_dom_finder import find_and_click_button
-    from shared.checkout_keywords import PAYMENT_BUTTONS
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_click_button
+    from src.checkout_ai.utils.checkout_keywords import PAYMENT_BUTTONS
     page = get_page()
     
     # Scroll to bottom to ensure button is in view
@@ -606,7 +583,7 @@ async def click_continue_to_payment_tool() -> Dict[str, Any]:
 
 async def select_custom_dropdown_tool(label: str = None, value: str = None) -> Dict[str, Any]:
     """Select option in custom dropdown (Click-Search-Select)"""
-    from phase2.checkout_dom_finder import interact_with_custom_dropdown
+    from src.checkout_ai.legacy.phase2.checkout_dom_finder import interact_with_custom_dropdown
     page = get_page()
     
     if not label or not value:

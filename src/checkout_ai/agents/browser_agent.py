@@ -151,6 +151,14 @@ if BA_agent is not None:
         return str(result)
 
     @BA_agent.tool_plain
+    async def click_add_to_cart(quantity: int = 1) -> str:
+        """Click the add to cart button (alias). Optional: Set quantity first."""
+        if quantity > 1:
+            await execute_tool("select_variant", variant_type="quantity", variant_value=str(quantity))
+        result = await execute_tool("add_to_cart")
+        return str(result)
+
+    @BA_agent.tool_plain
     async def navigate_to_cart() -> str:
         """Navigate to cart page"""
         result = await execute_tool("navigate_to_cart")
@@ -159,13 +167,23 @@ if BA_agent is not None:
     @BA_agent.tool_plain
     async def fill_email(email: str = None) -> str:
         """Fill email field (uses stored customer data if email not provided)"""
+        # Handle case where LLM passes "None" as string
+        if email == "None":
+            email = None
         result = await execute_tool("fill_email", email=email)
+        await asyncio.sleep(1) # Wait for UI update
         return str(result)
 
     @BA_agent.tool_plain
     async def fill_contact(first_name: str = None, last_name: str = None, phone: str = None) -> str:
         """Fill contact information (uses stored customer data if not provided)"""
+        # Handle "None" strings from LLM
+        if first_name == "None": first_name = None
+        if last_name == "None": last_name = None
+        if phone == "None": phone = None
+        
         result = await execute_tool("fill_contact", first_name=first_name, last_name=last_name, phone=phone)
+        await asyncio.sleep(1) # Wait for UI update
         # Auto‑click Continue if it appears after filling contact fields
         try:
             cont_res = await execute_tool("click_continue")
@@ -177,11 +195,15 @@ if BA_agent is not None:
 
     @BA_agent.tool_plain
     async def fill_contact_and_continue(first_name: str = None, last_name: str = None, phone: str = None) -> str:
-        """Fill contact fields then click Continue if present.
-        If the Continue button is not found, the function still returns the contact‑fill result.
-        """
+        """Fill contact fields then click Continue if present."""
+        # Handle "None" strings from LLM
+        if first_name == "None": first_name = None
+        if last_name == "None": last_name = None
+        if phone == "None": phone = None
+        
         # Fill the contact information first
         contact_res = await execute_tool("fill_contact", first_name=first_name, last_name=last_name, phone=phone)
+        await asyncio.sleep(1)
         # Attempt to click Continue; ignore failure
         try:
             cont_res = await execute_tool("click_continue")
@@ -196,7 +218,14 @@ if BA_agent is not None:
     @BA_agent.tool_plain
     async def fill_address(address: str = None, city: str = None, state: str = None, zip_code: str = None) -> str:
         """Fill shipping address (uses stored customer data if not provided)"""
+        # Handle "None" strings
+        if address == "None": address = None
+        if city == "None": city = None
+        if state == "None": state = None
+        if zip_code == "None": zip_code = None
+        
         result = await execute_tool("fill_address", address=address, city=city, state=state, zip_code=zip_code)
+        await asyncio.sleep(1)
         # Auto‑click Continue if it appears after filling address fields
         try:
             cont_res = await execute_tool("click_continue")
@@ -208,10 +237,15 @@ if BA_agent is not None:
 
     @BA_agent.tool_plain
     async def fill_address_and_continue(address: str = None, city: str = None, state: str = None, zip_code: str = None) -> str:
-        """Fill address fields then click Continue if present.
-        If Continue button is missing, attempts to click payment button.
-        """
+        """Fill address fields then click Continue if present."""
+        # Handle "None" strings
+        if address == "None": address = None
+        if city == "None": city = None
+        if state == "None": state = None
+        if zip_code == "None": zip_code = None
+        
         addr_res = await execute_tool("fill_address", address=address, city=city, state=state, zip_code=zip_code)
+        await asyncio.sleep(1)
         # Try generic Continue button
         try:
             cont_res = await execute_tool("click_continue")

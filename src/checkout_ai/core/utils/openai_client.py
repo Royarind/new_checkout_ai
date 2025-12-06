@@ -6,11 +6,12 @@ load_dotenv()
 
 _client = None
 _pydantic_model = None
-_last_config = None
+_last_client_config = None
+_last_model_config = None
 
 def get_client():
     """Get LLM client instance from UI config - supports all providers"""
-    global _client, _last_config
+    global _client, _last_client_config
     
     # Get config from UI
     try:
@@ -23,12 +24,12 @@ def get_client():
         
         # Check if config changed
         config_str = str(config)
-        if config_str != _last_config:
+        if config_str != _last_client_config:
             print(f"[LLM Client] Creating new client for provider: {config.get('provider', 'unknown')}")
-            _last_config = config_str
+            _last_client_config = config_str
             
             # Use LLM factory to create appropriate provider
-            from agents.llm_factory import LLMFactory
+            from src.checkout_ai.agents.llm_factory import LLMFactory
             _client = LLMFactory.create(config)
             print(f"[LLM Client] Client created successfully")
         
@@ -42,7 +43,7 @@ def get_client():
 
 def get_pydantic_model():
     """Get appropriate pydantic_ai model based on UI config"""
-    global _pydantic_model, _last_config
+    global _pydantic_model, _last_model_config
     
     try:
         from ui.api.llm_config_api import get_session_llm_config
@@ -54,9 +55,9 @@ def get_pydantic_model():
         
         # Check if config changed
         config_str = str(config)
-        if config_str != _last_config or _pydantic_model is None:
+        if config_str != _last_model_config or _pydantic_model is None:
             print(f"[LLM Client] Creating new pydantic model for provider: {config.get('provider', 'unknown')}")
-            _last_config = config_str
+            _last_model_config = config_str
             
             provider = config.get('provider', '').lower()
             model_name = config.get('model', '')
@@ -107,10 +108,15 @@ def get_pydantic_model():
                         # Fallback to OpenAI compatible endpoint for Ollama
                         print(f"[LLM Client] Native OllamaModel not found, using OpenAIModel with base_url")
                         from pydantic_ai.models.openai import OpenAIModel
-                        base_url = config.get('base_url', 'http://localhost:11434') + '/v1'
-                        os.environ['OPENAI_API_KEY'] = 'ollama' # Dummy key for local
+                        base_url = config.get('base_url', 'http://localhost:11434')
+                        if not base_url.endswith('/v1'):
+                            base_url = f"{base_url.rstrip('/')}/v1"
+                        
+                        # Set env vars which OpenAIModel reads automatically
+                        os.environ['OPENAI_API_KEY'] = 'ollama' 
                         os.environ['OPENAI_BASE_URL'] = base_url
-                        _pydantic_model = OpenAIModel(model_name=model_name, base_url=base_url)
+                        
+                        _pydantic_model = OpenAIModel(model_name=model_name)
                 except Exception as e:
                     print(f"[LLM Client] Error initializing Ollama: {e}, falling back to OpenAI default")
                     from pydantic_ai.models.openai import OpenAIModel
