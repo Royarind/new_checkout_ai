@@ -47,7 +47,13 @@ def _load_llm_config_from_env():
         - CUSTOM_BASE_URL, CUSTOM_MODEL for custom endpoint
     The function builds a config dict compatible with the original UI expectations.
     """
+    raw_provider = os.getenv('LLM_PROVIDER')
+    print(f"DEBUG: Raw LLM_PROVIDER env var: '{raw_provider}'")
+    
+    # FORCE RELOAD for debugging
+    load_dotenv(override=True)
     provider = os.getenv('LLM_PROVIDER', 'ollama').lower()
+    
     print(f"DEBUG: llm_config_api detected LLM_PROVIDER = {provider}")
     config = {'provider': provider}
     # Map provider to relevant env vars

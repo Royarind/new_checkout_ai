@@ -125,6 +125,8 @@ async def get_current_data():
 async def start_automation(request: AutomationRequest):
     """Start the automation flow"""
     try:
+        print("=== RECEIVED AUTOMATION REQUEST ===", flush=True)
+        print(f"[DEBUG] Request data keys: {request.json_data.keys()}", flush=True)
         # Run automation in background
         result = await run_full_flow(request.json_data)
         

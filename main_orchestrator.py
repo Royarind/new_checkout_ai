@@ -37,12 +37,12 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 
 # Phase 1 imports
-from checkout_ai.dom.service import UniversalDOMFinder as find_variant_dom
-from checkout_ai.legacy.phase1.add_to_cart_robust import add_to_cart_robust
-from checkout_ai.legacy.phase1.cart_navigator import navigate_to_cart
+from src.checkout_ai.dom.service import UniversalDOMFinder as find_variant_dom
+from src.checkout_ai.legacy.phase1.add_to_cart_robust import add_to_cart_robust
+from src.checkout_ai.legacy.phase1.cart_navigator import navigate_to_cart
 
 # Phase 2 imports
-from checkout_ai.legacy.phase2.checkout_flow import run_checkout_flow
+from src.checkout_ai.legacy.phase2.checkout_flow import run_checkout_flow
 
 # Site-specific handlers (using registry system)
 from special_sites import get_site_specific_variant_handler, get_site_specific_checkout_handler
@@ -51,10 +51,10 @@ from special_sites import get_site_specific_variant_handler, get_site_specific_c
 
 
 # Agent Imports
-from checkout_ai.agents.planner_agent import PA_agent, PLANNER_AGENT_OP
-from checkout_ai.agents.browser_agent import BA_agent, current_step_class
-from checkout_ai.agents.critique_agent import CA_agent, CritiqueInput, CritiqueOutput
-from checkout_ai.agents.tools import set_page
+from src.checkout_ai.agents.planner_agent import PA_agent, PLANNER_AGENT_OP
+from src.checkout_ai.agents.browser_agent import BA_agent, current_step_class
+from src.checkout_ai.agents.critique_agent import CA_agent, CritiqueInput, CritiqueOutput
+from src.checkout_ai.agents.tools import set_page
 
 # Stealth mode
 try:
@@ -70,7 +70,7 @@ async def run_agentic_flow(page: Page, task: Dict[str, Any]) -> Dict[str, Any]:
     """
     Executes the task using the Planner -> Browser -> Critique agent loop.
     """
-    from checkout_ai.agents.orchestrator import AgentOrchestrator
+    from src.checkout_ai.agents.orchestrator import AgentOrchestrator
     
     logger.info("ORCHESTRATOR: Starting Agentic Flow")
     
@@ -83,12 +83,15 @@ async def run_agentic_flow(page: Page, task: Dict[str, Any]) -> Dict[str, Any]:
     # Create orchestrator with customer data
     orchestrator = AgentOrchestrator(page, max_iterations=20, customer_data=customer_data)
     
-    # Execute checkout flow
+    # Execute checkout flow using autonomous agent
+    variant_str = ", ".join([f"{k}={v}" for k, v in variants.items()])
+    
     if customer_data:
-        result = await orchestrator.execute_checkout_flow(url, variants, customer_data)
+        # Full checkout flow
+        task_desc = f"Navigate to {url}, select variants ({variant_str}), add to cart with quantity {quantity}. Then proceed to checkout and fill all information (email, shipping, payment) to place the order."
+        result = await orchestrator.execute_task(task_desc, customer_data=customer_data)
     else:
         # Just product selection
-        variant_str = ", ".join([f"{k}={v}" for k, v in variants.items()])
         task_desc = f"Navigate to {url}, select variants ({variant_str}), add to cart with quantity {quantity}"
         result = await orchestrator.execute_task(task_desc)
     
@@ -153,7 +156,7 @@ Respond with JSON:
   "reason": "explanation"
 }}"""
         
-        from checkout_ai.core.utils.openai_client import get_client, get_model
+        from src.checkout_ai.core.utils.openai_client import get_client, get_model
         
         client = get_client()
         model = get_model()
@@ -332,7 +335,7 @@ async def run_phase1(page, task):
         await asyncio.sleep(2)
         
         # Dismiss popups first (cookie consent, etc.)
-        from shared.popup_dismisser import dismiss_popups
+        from src.checkout_ai.utils.popup_dismisser import dismiss_popups
         await dismiss_popups(page)
         await asyncio.sleep(1)
         
@@ -429,11 +432,16 @@ async def run_full_flow(json_data: dict) -> dict:
             temp_file = f.name
         
         try:
+            # Create output file for result
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', encoding='utf-8') as rf:
+                result_file = rf.name
+
             # Create Python script that runs automation
             script_content = f"""
 import sys
 import asyncio
 import json
+import os
 
 # Set Windows event loop policy FIRST
 asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -448,10 +456,14 @@ with open(r'{temp_file}', 'r', encoding='utf-8') as f:
     json_data = json.load(f)
 
 # Run automation
-result = asyncio.run(run_full_flow_core(json_data))
+try:
+    result = asyncio.run(run_full_flow_core(json_data))
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
 
-# Output result
-print(json.dumps(result, ensure_ascii=False))
+# Write result to file
+with open(r'{result_file}', 'w', encoding='utf-8') as f:
+    json.dump(result, f, ensure_ascii=False)
 """
             
             # Write script to temp file
@@ -459,45 +471,52 @@ print(json.dumps(result, ensure_ascii=False))
                 sf.write(script_content)
                 script_file = sf.name
             
-            # Run subprocess
-            result = subprocess.run(
+            # Prepare environment with unbuffered output
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'
+
+            # Run subprocess - NO CAPTURE so logs show in terminal
+            proc_result = subprocess.run(
                 [sys.executable, script_file],
-                capture_output=True,
+                # capture_output=False, # Default is False (inherit)
                 text=True,
                 encoding='utf-8',
-                timeout=300  # 5 minutes
+                env=env, # Pass updated environment
+                timeout=3800 # Allow time for the 1 hour sleep if needed + buffer
             )
             
-            # Clean up
+            # Clean up input script/data files
             try:
                 os.unlink(script_file)
                 os.unlink(temp_file)
             except:
                 pass
             
-            # Parse result
-            if result.returncode == 0:
+            # Read result
+            if proc_result.returncode == 0:
                 try:
-                    return json.loads(result.stdout.strip())
+                    with open(result_file, 'r', encoding='utf-8') as f:
+                        return json.load(f)
                 except Exception as e:
                     return {
                         "success": False, 
-                        "error": f"Failed to parse result: {str(e)}", 
-                        "stdout": result.stdout,
-                        "stderr": result.stderr
+                        "error": f"Failed to read result file: {str(e)}"
                     }
+                finally:
+                    if os.path.exists(result_file):
+                        os.unlink(result_file)
             else:
                 return {
                     "success": False, 
-                    "error": f"Subprocess failed with code {result.returncode}", 
-                    "stderr": result.stderr,
-                    "stdout": result.stdout
+                    "error": f"Subprocess failed with code {proc_result.returncode}", 
                 }
                 
         except Exception as e:
             # Clean up on error
             try:
-                os.unlink(temp_file)
+                if 'temp_file' in locals():
+                    os.unlink(temp_file)
             except:
                 pass
             return {"success": False, "error": f"Subprocess error: {str(e)}"}
@@ -676,7 +695,7 @@ async def run_full_flow_core(json_data: dict) -> dict:
         logger.info("ORCHESTRATOR: Starting payment automation phase")
         
         try:
-            from checkout_ai.payments import PaymentAutomationService
+            from src.checkout_ai.payments import PaymentAutomationService
             
             # Get user_id from json_input
             user_id = json_input.get('user_id')
@@ -791,6 +810,10 @@ async def run_full_flow_core(json_data: dict) -> dict:
         except:
             pass
         
+        # Keep browser open for inspection
+        logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Keeping browser open for 3600s for inspection...")
+        await asyncio.sleep(3600)
+
         # Cleanup
         try:
             if context:

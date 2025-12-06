@@ -49,80 +49,39 @@ class current_step_class(BaseModel):
 #System prompt for Browser Agent
 BA_SYS_PROMPT = """
 <agent_role>
-You are an excellent web navigation agent responsible for e-commerce automation tasks. You are placed in
-a multi-agent evironment which goes on in a loop, Planner -> Browser Agent[You] -> Critique. The planner manages 
-a plan and gives the current step to execute to you. You execute that current step using the tools you have. You
-can only execute one tool call or action per loop. The actions may include selecting variants, adding to cart, 
-checking out, or navigating. So essentially you are the most important agent in this environment who actually executes 
-tasks. Take this job seriously!
+You are an intelligent autonomous browser agent. You receive a specific step to execute from a larger plan. 
+Your goal is to execute this step successfully using your tools.
 </agent_role>
 
-<tool_usage_instructions>
-1. You have access to a set of tools. USE THEM DIRECTLY.
-2. DO NOT hallucinate new tools or function call formats.
-3. 🛑 CRITICAL: DO NOT USE XML TAGS LIKE <function=...> OR <tool_code>.
-4. 🛑 CRITICAL: DO NOT OUTPUT `function=navigate...`.
-5. Simply call the tool. The system handles the formatting.
-6. If you need to navigate, use the `navigate` tool.
-7. If you need to click, use `click` or high-level tools like `click_continue`.
-</tool_usage_instructions>
+<execution_protocol>
+1. **Analyze the Step**: Understand what needs to be done (e.g., "Select variant size=M").
+2. **Check Page State**: Use `validate_page` to see if you are on the right page and if elements are visible.
+3. **Select Tool**: Choose the most appropriate tool.
+   - For checkout forms, use high-level tools like `fill_contact` or `fill_address`.
+   - For variants, use `select_variant` (supports any type: color, size, storage, flavor, etc.).
+   - For navigation, use `navigate`.
+4. **Execute**: Run the tool.
+5. **Verify**: Check if the action worked.
+</execution_protocol>
 
-<Critical checkout_workflow_rules>
-1. **IMPORTANT**: Many checkout pages hide fields until previous steps are completed. Don't give up if validate_page shows no fields - proceed with filling anyway!
+<communication_tools>
+If you are stuck or need help, use these special tools instead of failing:
+- `call_planner(reason, current_state)`: Use this if:
+  - You are lost ("I don't know where I am")
+  - The current step text doesn't make sense
+  - You need the plan to be changed
+- `call_critique(concern, step_result)`: Use this if:
+  - You are unsure if an action was correct
+  - You encountered an error and want advice on how to fix it
+  - You hit a critical "Gate" (like Payment Page) and need verification
+</communication_tools>
 
-2. PRIORITIZE guest checkout - look for and click guest checkout button first
-
-3. On checkout page, fill EMAIL ONLY first, then click continue
-   - Fields may be hidden until email is filled
-   - Don't validate before filling - just try filling email
-
-4. After clicking continue, other fields will appear. Follow this EXACT order:
-   a. First Name
-   b. Last Name  
-   c. Phone Number
-   d. Country (if visible)
-   e. Address Line 1 (accept auto-fill/suggestions if needed)
-   f. Address Line 2 (if exists)
-   g. Landmark (if exists)
-   h. State
-   i. Zip Code
-   j. City
-
-5. **CRITICAL**: DO NOT hardcode values. Call tools WITHOUT arguments (e.g., `fill_first_name()`) to use stored customer data.
-
-6. If a field doesn't exist or fails, skip it and continue to next field. Don't get stuck!
-
-7. After ALL address fields are filled, click continue button to proceed to billing/payment section
-
-8. After clicking continue, check "Same as billing" checkbox if it appears
-
-9. Check any consent/terms checkboxes if required
-
-10. Select shipping method (use select_shipping_method() which defaults to free or cheapest)
-
-11. Click continue to reveal payment page (use click_continue_to_payment())
-
-12. If no guest checkout, proceed with login flow and fill email only (password will be prompted via UI)
-
-13. NEVER use web_search - it's not needed for checkout
-
-14. Wait 1-2 seconds after page loads before interacting
-
-15. If diverted to another page, navigate back to checkout/cart page immediately and continue
-</Critical checkout_workflow_rules>
-
-<rules>
-1. Execute ONE tool per iteration
-2. Try high-level tools first, fall back to low-level
-3. Return concise result summary
-4. If stuck after 2 attempts, report to critique
-5. NEVER invent or hardcode data - use the provided tools
-6. If you are not sure what to do, report to critique
-7. Do not get stuck on a single step for too long
-</rules>
+<outputs>
+Your tool calls will be executed by the system.
+Return a simple confirmation string if successful, formatted as: "SUCCESS: [details]"
+If failed, return: "ERROR: [details]"
+</outputs>
 """
-
-
 
 # Setup BA - model from UI config ONLY
 # Allow import to succeed even if no API key configured yet
@@ -138,9 +97,7 @@ try:
             deps_type=current_step_class,
             name="Browser Agent",
             retries=3,
-            model_settings=ModelSettings(
-                temperature=0.5,
-            ),
+            model_settings={'temperature': 0.5},
         )
         print("[Browser Agent] Initialized successfully")
     else:
@@ -167,9 +124,7 @@ def get_or_create_browser_agent():
                 deps_type=current_step_class,
                 name="Browser Agent",
                 retries=3,
-                model_settings=ModelSettings(
-                    temperature=0.5,
-                ),
+                model_settings={'temperature': 0.5},
             )
             print("[Browser Agent] Initialized successfully (lazy)")
             return BA_agent
@@ -472,3 +427,19 @@ if BA_agent is not None:
         """Navigate to URL"""
         result = await execute_tool("navigate", url=url)
         return str(result)
+
+    @BA_agent.tool_plain
+    async def call_planner(reason: str, current_state: str) -> str:
+        """Call Planner Agent to request a plan update.
+        Use this when you are lost, the plan is invalid, or you are stuck loop.
+        """
+        # This returns a signal string that the Orchestrator intercepts
+        return f"SIGNAL_CALL_PLANNER: {reason} | State: {current_state}"
+
+    @BA_agent.tool_plain
+    async def call_critique(concern: str, step_result: str) -> str:
+        """Call Critique Agent to request help or verification.
+        Use this when unsure of an action, facing an error, or hitting a Gate.
+        """
+        # This returns a signal string that the Orchestrator intercepts
+        return f"SIGNAL_CALL_CRITIQUE: {concern} | Result: {step_result}"
