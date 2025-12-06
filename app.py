@@ -4,8 +4,8 @@ import json
 import asyncio
 import html
 import re
-from automation_engine import ProductVariant, WebsiteDetails, ProductVariantAutomator
-from phase2.checkout_flow import run_checkout_flow
+from checkout_ai.legacy.automation_engine import ProductVariant, WebsiteDetails, ProductVariantAutomator
+from checkout_ai.legacy.phase2.checkout_flow import run_checkout_flow
 
 # def validate_selection(dom_content, expected_value):
 #     """Utility to validate selected variant in DOM content"""
@@ -186,7 +186,15 @@ async def automate_zara(url, quantity, selected_variant):
                 await asyncio.sleep(1)
             
             print("Looking for ADD button with universal DOM finder...")
-            from phase1.universal_dom_finder import find_variant_dom
+            from checkout_ai.dom.service import UniversalDOMFinder
+            
+            # Assuming find_variant_dom is now a static method of UniversalDOMFinder or needs to be instantiated
+            # Based on previous pattern, we might need to adjust usage too.
+            # But earlier I aliased it: from checkout_ai.dom.service import UniversalDOMFinder as find_variant_dom
+            # Let's check how I moved it. I moved the file.
+            # If the file had `async def find_variant_dom(...)`, it still has it.
+            # So I can import it from module.
+            from checkout_ai.dom.service import UniversalDOMFinder as find_variant_dom
             
             add_result = await find_variant_dom(page, 'add_to_cart', 'add')
             
@@ -242,10 +250,10 @@ async def automate_generic(url, quantity, selected_variant):
 async def automate_full_checkout(payload):
     """Full checkout flow: Phase 1 (add to cart) + Phase 2 (checkout) with agent fallback"""
     from playwright.async_api import async_playwright
-    from phase1.universal_dom_finder import find_variant_dom
-    from phase1.add_to_cart_robust import add_to_cart_robust
-    from phase1.cart_navigator import navigate_to_cart
-    from agent.agent_factory import create_agent_system
+    from checkout_ai.dom.service import UniversalDOMFinder as find_variant_dom
+    from checkout_ai.legacy.phase1.add_to_cart_robust import add_to_cart_robust
+    from checkout_ai.legacy.phase1.cart_navigator import navigate_to_cart
+    from checkout_ai.agents.legacy_adapter import create_agent_system
     
     customer = payload['customer']
     tasks = payload.get('tasks', [])

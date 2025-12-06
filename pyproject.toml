@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "checkout_ai"
+version = "0.1.0"
+description = "Agentic Browser Automation Framework"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "playwright",
+    "beautifulsoup4",
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "pydantic",
+    "openai",
+    "anthropic",
+    "requests"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "isort",
+    "flake8"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

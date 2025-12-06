@@ -28,11 +28,38 @@
 
 .messages-container {
     flex: 1;
+    max-height: 600px;
+    /* Fixed maximum height */
     overflow-y: auto;
+    /* Always show scrollbar when needed */
+    overflow-x: hidden;
     padding: 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    scrollbar-width: thin;
+    /* Firefox */
+    scrollbar-color: var(--accent-primary) var(--bg-tertiary);
+    /* Firefox */
+}
+
+/* Custom scrollbar for webkit browsers (Chrome, Edge, Safari) */
+.messages-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+    background: var(--accent-primary);
+    border-radius: 4px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-hover);
 }
 
 .welcome-message {

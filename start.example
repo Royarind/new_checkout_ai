@@ -1,0 +1,29 @@
+# Start Backend (Windows)
+
+**Old way (doesn't work with Playwright):**
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**New way (Windows Playwright fix):**
+```bash
+cd backend
+python run.py
+```
+
+# Start Frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+# What Changed
+
+- `backend/run.py` - Sets Windows event loop policy BEFORE uvicorn starts
+- `frontend/src/App.tsx` - Removed ProtectedRoute from all pages (no login required)
+
+# Now Automation Should Work!
+
+Go to `http://localhost:5173/` and test!

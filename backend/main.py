@@ -128,6 +128,9 @@ async def start_automation(request: AutomationRequest):
         # Run automation in background
         result = await run_full_flow(request.json_data)
         
+        # Log full result for debugging
+        print(f"[DEBUG] Automation result: {result}")
+        
         return AutomationStatus(
             status="completed" if result.get("success") else "failed",
             phase=result.get("phase"),
@@ -135,6 +138,8 @@ async def start_automation(request: AutomationRequest):
             final_url=result.get("final_url")
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/ws/screenshots")

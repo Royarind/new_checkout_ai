@@ -1,5 +1,5 @@
 import asyncio, time
-from phase2.checkout_flow import run_checkout_flow
+from checkout_ai.legacy.phase2.checkout_flow import run_checkout_flow
 
 # Dummy customer data (minimal fields)
 customer_data = {

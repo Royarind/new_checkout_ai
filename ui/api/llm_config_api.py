@@ -42,6 +42,7 @@ def _load_llm_config_from_env():
         - OPENAI_API_KEY, OPENAI_MODEL for OpenAI
         - GROQ_API_KEY, GROQ_MODEL for Groq
         - GEMINI_API_KEY, GEMINI_MODEL for Gemini
+        - OPENROUTER_API_KEY, OPENROUTER_MODEL for OpenRouter
         - AZURE_API_KEY, AZURE_ENDPOINT, AZURE_DEPLOYMENT, AZURE_MODEL for Azure
         - CUSTOM_BASE_URL, CUSTOM_MODEL for custom endpoint
     The function builds a config dict compatible with the original UI expectations.
@@ -63,6 +64,10 @@ def _load_llm_config_from_env():
     elif provider == 'gemini':
         config['api_key'] = os.getenv('GEMINI_API_KEY', '')
         config['model'] = os.getenv('GEMINI_MODEL', '')
+    elif provider == 'openrouter':
+        config['api_key'] = os.getenv('OPENROUTER_API_KEY', '')
+        config['model'] = os.getenv('OPENROUTER_MODEL', '')
+        config['base_url'] = 'https://openrouter.ai/api/v1'
     elif provider == 'azure':
         config['api_key'] = os.getenv('AZURE_API_KEY', '')
         config['model'] = os.getenv('AZURE_MODEL', '')

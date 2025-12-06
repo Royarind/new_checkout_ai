@@ -31,7 +31,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 import re
-from agents.llm_factory import LLMFactory
+from src.checkout_ai.agents.llm_factory import LLMFactory
 from ui.services.variant_detector import detect_variants
 
 # Load environment variables from parent directory

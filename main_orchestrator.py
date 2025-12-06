@@ -9,19 +9,24 @@ Handles complete flow: Product Selection → Cart → Checkout → Shipping Form
 import os
 import sys
 
+# CRITICAL: Windows Playwright fix MUST be first - before asyncio is used anywhere
+if sys.platform == 'win32':
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    print("[WINDOWS FIX] Set ProactorEventLoop policy at module import")
+
 # Set UTF-8 encoding for all I/O operations (Windows fix)
 if sys.platform == 'win32':
     # Set environment variable for Python's default encoding
     os.environ['PYTHONIOENCODING'] = 'utf-8'
     
-    # Reconfigure stdout/stderr to use UTF-8 with error handling
+    # Force stdout/stderr to use UTF-8
     import codecs
     if hasattr(sys.stdout, 'buffer'):
         sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'replace')
     if hasattr(sys.stderr, 'buffer'):
         sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'replace')
 
-import asyncio
 import json
 import logging
 import shutil
@@ -32,12 +37,12 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 
 # Phase 1 imports
-from phase1.universal_dom_finder import find_variant_dom
-from phase1.add_to_cart_robust import add_to_cart_robust
-from phase1.cart_navigator import navigate_to_cart
+from checkout_ai.dom.service import UniversalDOMFinder as find_variant_dom
+from checkout_ai.legacy.phase1.add_to_cart_robust import add_to_cart_robust
+from checkout_ai.legacy.phase1.cart_navigator import navigate_to_cart
 
 # Phase 2 imports
-from phase2.checkout_flow import run_checkout_flow
+from checkout_ai.legacy.phase2.checkout_flow import run_checkout_flow
 
 # Site-specific handlers (using registry system)
 from special_sites import get_site_specific_variant_handler, get_site_specific_checkout_handler
@@ -46,10 +51,10 @@ from special_sites import get_site_specific_variant_handler, get_site_specific_c
 
 
 # Agent Imports
-from agents.planner_agent import PA_agent, PLANNER_AGENT_OP
-from agents.browser_agent import BA_agent, current_step_class
-from agents.critique_agent import CA_agent, CritiqueInput, CritiqueOutput
-from agents.tools import set_page
+from checkout_ai.agents.planner_agent import PA_agent, PLANNER_AGENT_OP
+from checkout_ai.agents.browser_agent import BA_agent, current_step_class
+from checkout_ai.agents.critique_agent import CA_agent, CritiqueInput, CritiqueOutput
+from checkout_ai.agents.tools import set_page
 
 # Stealth mode
 try:
@@ -65,7 +70,7 @@ async def run_agentic_flow(page: Page, task: Dict[str, Any]) -> Dict[str, Any]:
     """
     Executes the task using the Planner -> Browser -> Critique agent loop.
     """
-    from agents.orchestrator import AgentOrchestrator
+    from checkout_ai.agents.orchestrator import AgentOrchestrator
     
     logger.info("ORCHESTRATOR: Starting Agentic Flow")
     
@@ -148,7 +153,7 @@ Respond with JSON:
   "reason": "explanation"
 }}"""
         
-        from core.utils.openai_client import get_client, get_model
+        from checkout_ai.core.utils.openai_client import get_client, get_model
         
         client = get_client()
         model = get_model()
@@ -408,21 +413,117 @@ async def run_phase1(page, task):
         return {'success': False, 'error': str(e)}
 
 
-async def run_full_flow(json_input):
+async def run_full_flow(json_data: dict) -> dict:
     """
-    Main orchestrator: Phase 1 → Phase 2 in same browser
-    json_input: Full JSON with customer data and tasks
-    Returns: {'success': bool, 'phase': str, 'error': str}
+    Windows-compatible entry point for automation
+    Runs Playwright in subprocess on Windows to avoid event loop conflicts
     """
-    logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Starting full checkout flow")
+    if sys.platform == 'win32':
+        # Run in subprocess with correct event loop
+        import subprocess
+        import tempfile
+        
+        # Write JSON to temp file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', encoding='utf-8') as f:
+            json.dump(json_data, f)
+            temp_file = f.name
+        
+        try:
+            # Create Python script that runs automation
+            script_content = f"""
+import sys
+import asyncio
+import json
+
+# Set Windows event loop policy FIRST
+asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+# Add project to path
+sys.path.insert(0, r'{os.path.dirname(os.path.abspath(__file__))}')
+
+from main_orchestrator import run_full_flow_core
+
+# Load data
+with open(r'{temp_file}', 'r', encoding='utf-8') as f:
+    json_data = json.load(f)
+
+# Run automation
+result = asyncio.run(run_full_flow_core(json_data))
+
+# Output result
+print(json.dumps(result, ensure_ascii=False))
+"""
+            
+            # Write script to temp file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py', encoding='utf-8') as sf:
+                sf.write(script_content)
+                script_file = sf.name
+            
+            # Run subprocess
+            result = subprocess.run(
+                [sys.executable, script_file],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                timeout=300  # 5 minutes
+            )
+            
+            # Clean up
+            try:
+                os.unlink(script_file)
+                os.unlink(temp_file)
+            except:
+                pass
+            
+            # Parse result
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout.strip())
+                except Exception as e:
+                    return {
+                        "success": False, 
+                        "error": f"Failed to parse result: {str(e)}", 
+                        "stdout": result.stdout,
+                        "stderr": result.stderr
+                    }
+            else:
+                return {
+                    "success": False, 
+                    "error": f"Subprocess failed with code {result.returncode}", 
+                    "stderr": result.stderr,
+                    "stdout": result.stdout
+                }
+                
+        except Exception as e:
+            # Clean up on error
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+            return {"success": False, "error": f"Subprocess error: {str(e)}"}
+    else:
+        # Non-Windows: run directly
+        return await run_full_flow_core(json_data)
+
+
+
+
+
+
+async def run_full_flow_core(json_data: dict) -> dict:
+    """
+    Core automation logic - renamed from run_full_flow
+    This is the actual implementation that runs Playwright
+    """
+    logger.info("[%s] Starting full checkout flow", datetime.now().strftime('%H:%M:%S'))
     
     playwright = None
     context = None
     
     try:
         # Parse input
-        customer = json_input['customer']
-        tasks = json_input['tasks']
+        customer = json_data['customer']
+        tasks = json_data['tasks']
         
         # Extract base URL from first task for fallback
         from urllib.parse import urlparse
@@ -444,7 +545,8 @@ async def run_full_flow(json_input):
         context = await playwright.chromium.launch_persistent_context(
             user_data_dir=profile_path,
             # channel='chrome',  # Removed to use bundled Chromium
-            headless=False,
+            headless=False,  # VISIBLE BROWSER WINDOW - See automation in real-time!
+            slow_mo=100,  # Slow down by 100ms per action for better visibility
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--exclude-switches=enable-automation',
@@ -474,8 +576,7 @@ async def run_full_flow(json_input):
             viewport=None,
             permissions=[],  # Grant no permissions
             geolocation={'latitude': 0, 'longitude': 0},  # Provide fake geolocation to avoid prompt
-            ignore_https_errors=True,
-            slow_mo=500
+            ignore_https_errors=True
         )
         
         # Get the first page (or create one if none exists)
@@ -570,11 +671,110 @@ async def run_full_flow(json_input):
             await asyncio.sleep(2)
 
         logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] All tasks completed via agentic flow")
-        return {
-            'success': True,
-            'message': 'All tasks completed via agentic flow',
-            'final_url': page.url
-        }
+        
+        # ========== PAYMENT AUTOMATION PHASE ==========
+        logger.info("ORCHESTRATOR: Starting payment automation phase")
+        
+        try:
+            from checkout_ai.payments import PaymentAutomationService
+            
+            # Get user_id from json_input
+            user_id = json_input.get('user_id')
+            
+            if not user_id:
+                logger.warning("ORCHESTRATOR: No user_id provided, skipping payment automation")
+                return {
+                    'success': True,
+                    'phase': 'checkout_completed',
+                    'payment_ready': True,
+                    'message': 'Checkout complete - ready for manual payment',
+                    'final_url': page.url
+                }
+            
+            logger.info(f"ORCHESTRATOR: Auto-filling payment for user_id: {user_id}")
+            
+            # Auto-fill payment from wallet
+            payment_result = await PaymentAutomationService.fill_payment_from_wallet(
+                page=page,
+                user_id=user_id,
+                payment_method_id=None  # Use default payment method
+            )
+            
+            if not payment_result.get('success'):
+                logger.error(f"ORCHESTRATOR: Payment fill failed: {payment_result.get('error')}")
+                return {
+                    'success': False,
+                    'phase': 'payment_fill',
+                    'error': f"Payment automation failed: {payment_result.get('error')}",
+                    'final_url': page.url
+                }
+            
+            logger.info(f"ORCHESTRATOR: Payment filled using: {payment_result.get('method_used')}")
+            await asyncio.sleep(2)
+            
+            # Submit order
+            logger.info("ORCHESTRATOR: Submitting order...")
+            order_result = await PaymentAutomationService.submit_payment(page)
+            
+            if not order_result.get('success'):
+                logger.warning(f"ORCHESTRATOR: Order submission uncertain: {order_result.get('error')}")
+                return {
+                    'success': True,
+                    'phase': 'payment_filled',
+                    'payment_ready': True,
+                    'message': 'Payment filled - please complete manually if needed',
+                    'final_url': page.url
+                }
+            
+            logger.info(f"ORCHESTRATOR: Order placed successfully")
+            
+            # Wait for page load
+            await asyncio.sleep(3)
+            
+            # Capture order confirmation
+            confirmation = await PaymentAutomationService.capture_order_confirmation(page)
+            
+            if confirmation.get('success') and confirmation.get('order_number'):
+                logger.info(f"ORCHESTRATOR: Order confirmed: {confirmation['order_number']}")
+                
+                # Save to database
+                order_id = await PaymentAutomationService.save_order_to_history(
+                    user_id=user_id,
+                    order_data=confirmation,
+                    checkout_json=json_input
+                )
+                
+                logger.info(f"ORCHESTRATOR: Order saved to database with ID: {order_id}")
+                
+                return {
+                    'success': True,
+                    'phase': 'order_confirmed',
+                    'order_number': confirmation['order_number'],
+                    'order_id': order_id,
+                    'message': f"Order {confirmation['order_number']} placed successfully!",
+                    'final_url': page.url
+                }
+            else:
+                logger.warning("ORCHESTRATOR: Could not capture order confirmation")
+                return {
+                    'success': True,
+                    'phase': 'payment_submitted',
+                    'message': 'Order likely placed but confirmation not captured',
+                    'final_url': page.url
+                }
+                
+        except Exception as e:
+            logger.error(f"ORCHESTRATOR: Payment automation error: {e}")
+            import traceback
+            logger.error(f"ORCHESTRATOR: Traceback: {traceback.format_exc()}")
+            return {
+                'success': True,  # Checkout still succeeded
+                'phase': 'payment_error',
+                'payment_ready': True,
+                'error': f"Payment automation failed: {str(e)}",
+                'message': 'Checkout complete - payment automation failed, please complete manually',
+                'final_url': page.url
+            }
         
     except Exception as e:
         logger.error(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Fatal error: {e}")
