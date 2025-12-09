@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import project services
-from ui.services.conversation_agent import ConversationAgent
+from backend.services.conversation_agent import ConversationAgent
 from main_orchestrator import run_full_flow
 
 app = FastAPI(title="CHKout.ai API", version="1.0.0")
@@ -99,7 +99,7 @@ async def reset_chat():
 @app.get("/api/config/llm", response_model=LLMConfig)
 async def get_llm_config():
     """Get current LLM configuration from .env"""
-    from ui.api.llm_config_api import get_session_llm_config
+    from backend.api.llm_config_api import get_session_llm_config
     
     config = get_session_llm_config()
     if not config:
@@ -169,7 +169,7 @@ async def startup_event():
     print(f"📍 Project root: {project_root}")
     
     # Verify LLM configuration
-    from ui.api.llm_config_api import get_session_llm_config
+    from backend.api.llm_config_api import get_session_llm_config
     config = get_session_llm_config()
     if config:
         print(f"✅ LLM configured: {config.get('provider')} - {config.get('model')}")

@@ -7,10 +7,10 @@ Same as Billing Checkbox → Continue → Payment
 
 import asyncio
 import logging
-from checkout_ai.legacy.phase2.smart_form_filler import SmartFormFiller
-from checkout_ai.legacy.phase2.checkout_dom_finder import CheckoutDOMFinder, find_and_click_button, fill_input_field, find_and_select_dropdown
-from checkout_ai.utils.checkout_keywords import CONTINUE_BUTTONS
-from checkout_ai.utils.popup_dismisser import dismiss_popups
+from src.checkout_ai.legacy.phase2.smart_form_filler import SmartFormFiller
+from src.checkout_ai.legacy.phase2.checkout_dom_finder import CheckoutDOMFinder, find_and_click_button, fill_input_field, find_and_select_dropdown
+from src.checkout_ai.utils.checkout_keywords import CONTINUE_BUTTONS
+from src.checkout_ai.utils.popup_dismisser import dismiss_popups
 
 logger = logging.getLogger(__name__)
 

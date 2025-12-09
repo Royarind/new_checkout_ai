@@ -1052,7 +1052,7 @@ async def run_ai_checkout_flow(page, customer_data, user_prompt_callback=None):
     log(logger, 'info', 'Starting AI-Driven Checkout Flow', 'CHECKOUT', 'CORE')
     log(logger, 'info', '=' * 60, 'CHECKOUT', 'CORE')
     
-    from ui.api.llm_config_api import get_session_llm_config
+    from backend.api.llm_config_api import get_session_llm_config
     llm_config = get_session_llm_config()
     llm_client = LLMClient(config=llm_config) if llm_config else LLMClient()
     

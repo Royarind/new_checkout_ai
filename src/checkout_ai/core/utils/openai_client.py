@@ -15,7 +15,7 @@ def get_client():
     
     # Get config from UI
     try:
-        from ui.api.llm_config_api import get_session_llm_config
+        from backend.api.llm_config_api import get_session_llm_config
         config = get_session_llm_config()
         
         if not config:
@@ -46,7 +46,7 @@ def get_pydantic_model():
     global _pydantic_model, _last_model_config
     
     try:
-        from ui.api.llm_config_api import get_session_llm_config
+        from backend.api.llm_config_api import get_session_llm_config
         config = get_session_llm_config()
         
         if not config:
@@ -154,7 +154,7 @@ def get_pydantic_model():
 def get_model():
     """Get model name from UI config"""
     try:
-        from ui.api.llm_config_api import get_session_llm_config
+        from backend.api.llm_config_api import get_session_llm_config
         config = get_session_llm_config()
         if config and config.get('model'):
             print(f"[LLM Client] Using model from UI config: {config['model']}")

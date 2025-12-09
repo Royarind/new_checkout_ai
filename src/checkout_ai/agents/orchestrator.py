@@ -5,12 +5,15 @@ from typing import Dict, Any, List
 from playwright.async_api import Page
 
 from src.checkout_ai.agents.llm_factory import LLMFactory
-from src.checkout_ai.agents.tools import get_agent_tools
 from src.checkout_ai.agents.browser_agent import BrowserAgent, current_step_class
 from src.checkout_ai.core.config import LoadConfig
 from src.checkout_ai.utils.logger_config import setup_logger
 from src.checkout_ai.agents.critique_agent import CritiqueInput
 from src.checkout_ai.agents.unified_tools import set_page, set_customer_data
+from src.checkout_ai.utils.country_detector import (
+    detect_country_from_url, 
+    get_country_config
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,8 @@ class AgentOrchestrator:
         self.max_iterations = max_iterations
         self.history = []
         self.customer_data = customer_data
+        self.detected_country = None
+        self.country_config = None
         set_page(page)
         if customer_data:
             set_customer_data(customer_data)
@@ -51,13 +56,46 @@ class AgentOrchestrator:
         if not planner or not browser or not critique:
             return {'success': False, 'error': "Failed to initialize agents.", 'iterations': 0, 'history': []}
         
-        # Build query
+        # Detect country from URL (if available)
+        url = None
+        if customer_data and 'tasks' in customer_data:
+            tasks = customer_data.get('tasks', [])
+            if tasks and len(tasks) > 0:
+                url = tasks[0].get('url')
+        
+        if url:
+            self.detected_country = detect_country_from_url(url)
+            if self.detected_country:
+                self.country_config = get_country_config(self.detected_country)
+                logger.info(f"🌍 Detected country: {self.detected_country} ({self.country_config['name']})")
+                logger.info(f"   Postal code format: {self.country_config['postal_code_label']}")
+                logger.info(f"   Currency: {self.country_config['currency_symbol']} ({self.country_config['currency_code']})")
+            else:
+                logger.info(f"⚠️  Could not detect country from URL: {url}, defaulting to US")
+                self.detected_country = 'US'
+                self.country_config = get_country_config('US')
+        else:
+            # No URL, use default
+            logger.info("⚠️  No URL provided, using default country: US")
+            self.detected_country = 'US'
+            self.country_config = get_country_config('US')
+        
+        # Build query with country context
         query = task_description
         if customer_data:
             contact = customer_data.get('contact', {})
             addr = customer_data.get('shippingAddress', {})
             query += f"\n\nCustomer: {contact.get('firstName')} {contact.get('lastName')}, Email: {contact.get('email')}"
             query += f"\nAddress: {addr.get('addressLine1')}, {addr.get('city')}, {addr.get('province')} {addr.get('postalCode')}"
+        
+        # Add country context for planner
+        if self.country_config:
+            query += f"\n\n[COUNTRY CONTEXT]\n"
+            query += f"Country: {self.country_config['name']} ({self.detected_country})\n"
+            query += f"Postal Code Label: {self.country_config['postal_code_label']} (example: {self.country_config['postal_code_example']})\n"
+            query += f"Phone Format: {self.country_config['phone_format']} (example: {self.country_config['phone_example']})\n"
+            query += f"State Required: {'Yes' if self.country_config['state_required'] else 'No (optional)'}\n"
+            query += f"Currency: {self.country_config['currency_symbol']} ({self.country_config['currency_code']})"
 
         # --- STEP 1: PLANNING ---
         logger.info("ORCHESTRATOR: Generating initial plan...")
@@ -105,10 +143,40 @@ class AgentOrchestrator:
                     # Handle Signals
                     if "SIGNAL_CALL_PLANNER" in result_str:
                         logger.info("ORCHESTRATOR: Browser requested Replanning")
-                        # Call Planner logic here (simplified for robustness: just log/retry)
-                        # Ideally: new_plan = await planner.run(f"Replan: {result_str}")
-                        # For now, we'll treat as error
-                        raise Exception(f"Replanning requested: {result_str}")
+                        
+                        # Extract reason from signal
+                        reason = result_str.replace("SIGNAL_CALL_PLANNER:", "").strip()
+                        
+                        # Build replan context
+                        replan_context = f"""
+                            Original task: {task_description}
+
+                            Execution history (last 3 steps):
+                            {history[-3:] if len(history) > 3 else history}
+
+                            Current step failed: {step_text}
+                            Reason: {reason}
+
+                            Please generate a NEW complete plan starting from this point to complete the task.
+                            """
+                        
+                        try:
+                            logger.info("ORCHESTRATOR: Calling Planner for replan...")
+                            replan_result = await planner.run(replan_context)
+                            new_plan_steps = replan_result.output.plan_steps
+                            
+                            logger.info(f"ORCHESTRATOR: Replan generated {len(new_plan_steps)} steps")
+                            
+                            # Replace remaining steps with new plan
+                            plan_steps = plan_steps[:current_step_idx] + new_plan_steps
+                            logger.info(f"ORCHESTRATOR: Updated plan, total steps now: {len(plan_steps)}")
+                            
+                            # Continue from current position
+                            continue
+                            
+                        except Exception as replan_err:
+                            logger.error(f"ORCHESTRATOR: Replanning failed: {replan_err}")
+                            raise Exception(f"Replanning failed: {replan_err}")
                         
                     elif "SIGNAL_CALL_CRITIQUE" in result_str:
                         logger.info("ORCHESTRATOR: Browser requested Assistance")
@@ -121,8 +189,26 @@ class AgentOrchestrator:
                         c_res = await critique.run(c_input)
                         advice = c_res.output.feedback
                         logger.info(f"ORCHESTRATOR: Critique Advice: {advice}")
-                        # Retry step with advice attached? Or just retry
-                        continue # Retry loop
+                        
+                        # Store advice to pass on retry
+                        # Append advice to step_text so browser agent sees it
+                        step_text_with_advice = f"{step_text}\n\n[ADVICE from Critique Agent]: {advice}"
+                        
+                        # Retry with advice-enhanced step
+                        try:
+                            result = await browser.run(step_text_with_advice, deps=current_step_class(current_step=step_text_with_advice))
+                            result_str = str(result.output)
+                            logger.info(f"ORCHESTRATOR: Browser Result (with advice): {result_str}")
+                            
+                            # Check if successful after advice
+                            if "ERROR" not in result_str and "SIGNAL" not in result_str:
+                                history.append({"step": step_text, "result": result_str, "with_advice": True})
+                                step_success = True
+                                break
+                        except Exception as e:
+                            logger.warning(f"ORCHESTRATOR: Retry with advice failed: {e}")
+                        
+                        continue # Try next attempt if advice didn't work
 
                     elif "ERROR" in result_str:
                          logger.warning(f"ORCHESTRATOR: Step failed (attempt {attempt+1}): {result_str}")

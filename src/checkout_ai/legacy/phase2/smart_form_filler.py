@@ -81,8 +81,8 @@ class SmartFormFiller:
         Fill checkout form in optimal order with continue button handling
         Returns: {'success': bool, 'filled_count': int, 'errors': List[str]}
         """
-        from checkout_ai.dom.service import UniversalDOMFinder, fill_input_field, find_and_click_button, find_and_select_dropdown
-        from shared.checkout_keywords import (
+        from src.checkout_ai.dom.service import UniversalDOMFinder, fill_input_field, find_and_click_button, find_and_select_dropdown
+        from src.shared.checkout_keywords import (
             EMAIL_LABELS, FIRST_NAME_LABELS, LAST_NAME_LABELS, PHONE_LABELS,
             ADDRESS_LINE1_LABELS, CITY_LABELS, STATE_LABELS, POSTAL_CODE_LABELS,
             COUNTRY_LABELS, CONTINUE_BUTTONS

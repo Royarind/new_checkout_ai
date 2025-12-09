@@ -32,7 +32,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import re
 from src.checkout_ai.agents.llm_factory import LLMFactory
-from ui.services.variant_detector import detect_variants
+from backend.services.variant_detector import detect_variants
 
 # Load environment variables from parent directory
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -44,7 +44,7 @@ load_dotenv(os.path.join(parent_dir, '.env'))
 
 class LLMClient:
     def __init__(self):
-        from ui.api.llm_config_api import get_session_llm_config
+        from backend.api.llm_config_api import get_session_llm_config
         
         session_config = get_session_llm_config()
         if session_config:
@@ -118,7 +118,7 @@ class ConversationAgent:
     def _init_llm(self):
         """Initialize LLM client with session config only"""
         try:
-            from ui.api.llm_config_api import get_session_llm_config
+            from backend.api.llm_config_api import get_session_llm_config
             config = get_session_llm_config()
             print(f"\n_init_llm called - config: {config}")
             if config:

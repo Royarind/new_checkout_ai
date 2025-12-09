@@ -54,7 +54,7 @@ from special_sites import get_site_specific_variant_handler, get_site_specific_c
 from src.checkout_ai.agents.planner_agent import PA_agent, PLANNER_AGENT_OP
 from src.checkout_ai.agents.browser_agent import BA_agent, current_step_class
 from src.checkout_ai.agents.critique_agent import CA_agent, CritiqueInput, CritiqueOutput
-from src.checkout_ai.agents.tools import set_page
+from src.checkout_ai.agents.unified_tools import set_page
 
 # Stealth mode
 try:

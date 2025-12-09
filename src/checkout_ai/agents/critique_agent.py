@@ -8,9 +8,9 @@ from src.checkout_ai.core.utils.openai_client import get_client, get_model, get_
 
 load_dotenv()
 
-# Ensure OPENAI_API_KEY is set from .env or UI config
+# API key loaded from backend config (reads .env)
 try:
-    from ui.api.llm_config_api import get_session_llm_config
+    from backend.api.llm_config_api import get_session_llm_config
     config = get_session_llm_config()
     if config and config.get('api_key'):
         os.environ['OPENAI_API_KEY'] = config['api_key']
