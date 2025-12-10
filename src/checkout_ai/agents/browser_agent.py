@@ -182,9 +182,9 @@ Never create fake personal or payment data; rely on given values or stored custo
 - Do not hallucinate data; use only tool-provided / plan-provided values.
 - **NEVER click navigation links** (Home, Shop, About, Contact, etc.) - they take you away from checkout.
 - If `click_continue` fails, it will auto-recover using checkout URLs - don't manually navigate.
-- **🚨 CRITICAL: Call fill tools WITHOUT parameters - they auto-get customer data:**
-  - ❌ WRONG: `fill_contact(first_name="John")` or `fill_address(city="Sample City")`
-  - ✅ CORRECT: `fill_contact()` and `fill_address()` with NO arguments
+- **CRITICAL: Call fill tools WITHOUT parameters - they auto-get customer data:**
+  - WRONG: `fill_contact(first_name="John")` or `fill_address(city="Sample City")`
+  - CORRECT: `fill_contact()` and `fill_address()` with NO arguments
   - NEVER invent, hallucinate, or provide example values!
 </good_behavior>
 
@@ -249,17 +249,29 @@ def get_or_create_browser_agent():
 
 # Register high-level tools - only if agent was successfully created
 if BA_agent is not None:
-    @BA_agent.tool_plain
-    async def select_variant(current_step: str) -> str:
-        """Parse and select variant from step like 'Select variant: color=Slate Grey'"""
+    @BA_agent.tool
+    async def select_variant(ctx: RunContext) -> str:
+        """Select product variant by parsing the current step description.
+        The step format should be: 'Select variant: color=Slate Grey' or 'Select variant: size=L'
+        """
         import re
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Get current_step from context deps, not from LLM parameter!
+        current_step = ctx.deps.current_step
+        logger.info(f"🔍 select_variant accessing from context: {current_step}")
+        
         # Extract variant_type and variant_value from step description
         match = re.search(r'(\w+)\s*=\s*([^,]+)', current_step)
         if not match:
+            logger.error(f"❌ Could not parse variant from: {current_step}")
             return "ERROR: Could not parse variant from step"
         
         variant_type = match.group(1).strip()
         variant_value = match.group(2).strip()
+        
+        logger.info(f"✅ Parsed from step: {variant_type}={variant_value}")
         
         result = await execute_tool("select_variant", variant_type=variant_type, variant_value=variant_value)
         return str(result)
