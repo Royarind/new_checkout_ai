@@ -120,13 +120,27 @@ class AgentOrchestrator:
             logger.error(msg)
             return {'success': False, 'error': msg, 'iterations': 0}
 
+        # --- INDIA PLUGIN: Augment plan with India-specific steps ---
+        if self.detected_country == 'IN':
+            try:
+                from src.checkout_ai.plugins.india import IndiaWorkflowPlugin
+                india_plugin = IndiaWorkflowPlugin()
+                plan_steps = india_plugin.augment_plan(plan_steps, 'IN')
+                logger.info(f"🇮🇳 India plugin applied. Final plan has {len(plan_steps)} steps")
+            except Exception as e:
+                logger.warning(f"India plugin failed: {e}, continuing with standard plan")
+
         # --- STEP 2: EXECUTION LOOP ---
         from src.checkout_ai.agents.loop_detector import LoopDetector
         
         current_step_idx = 0
-        max_retries = 3
+        max_retries = 2  # REDUCED: Fail faster to prevent infinite loops
         history = []
-        loop_detector = LoopDetector(window_size=5, threshold=3)  # Detect after 3 failures
+        loop_detector = LoopDetector(window_size=4, threshold=2)  # REDUCED: Detect after 2 consecutive failures
+        
+        # Emergency exit counter - absolute maximum attempts across all steps
+        total_failures = 0
+        MAX_TOTAL_FAILURES = 10  # Exit completely if we fail 10 times total
         
         # Gate Definitions
         GATES = {
@@ -138,6 +152,15 @@ class AgentOrchestrator:
         }
 
         while current_step_idx < len(plan_steps):
+            # EMERGENCY EXIT: Too many total failures
+            if total_failures >= MAX_TOTAL_FAILURES:
+                logger.error(f"🚨 EMERGENCY EXIT: {total_failures} total failures. Stopping automation.")
+                return {
+                    'success': False, 
+                    'error': f'Emergency exit triggered after {total_failures} failures', 
+                    'history': history
+                }
+            
             step_text = plan_steps[current_step_idx]
             logger.info(f"ORCHESTRATOR: ============================================")
             logger.info(f"ORCHESTRATOR: Executing Step {current_step_idx + 1}/{len(plan_steps)}")
@@ -146,6 +169,40 @@ class AgentOrchestrator:
             
             # Execute Step
             step_success = False
+            
+            # SAFETY: Order confirmation before final placement
+            step_lower = step_text.lower()
+            is_order_placement = any(kw in step_lower for kw in 
+                                    ['place order', 'confirm order', 'complete order', 'submit order', 'finalize order'])
+            
+            if is_order_placement:
+                from src.checkout_ai.utils.order_confirmation import get_confirmation_handler
+                
+                confirmation_handler = get_confirmation_handler()
+                
+                if confirmation_handler.is_enabled():
+                    logger.info("")
+                    logger.info("🛑" * 35)
+                    logger.info("ORDER PLACEMENT CONFIRMATION REQUIRED")
+                    logger.info("🛑" * 35)
+                    
+                    confirmed = await confirmation_handler.confirm_order_placement({
+                        'step': step_text,
+                        'url': self.page.url,
+                        'task': task_description[:100]
+                    })
+                    
+                    if not confirmed:
+                        logger.error("❌ User cancelled order placement")
+                        return {
+                            'success': False, 
+                            'error': 'Order placement cancelled by user', 
+                            'history': history
+                        }
+                    
+                    logger.info("✅ Proceeding with order placement...")
+                    logger.info("")
+            
             for attempt in range(max_retries):
                 try:
                     # Proactive popup dismissal BEFORE step execution for critical actions
@@ -294,9 +351,12 @@ Consider:
 
                 except Exception as e:
                     logger.warning(f"ORCHESTRATOR: Execution error: {e}")
+                    total_failures += 1  # Track total failures
                     await asyncio.sleep(2)
             
             if not step_success:
+                total_failures += max_retries  # Count all retries as failures
+                logger.error(f"ORCHESTRATOR: Step failed after {max_retries} attempts. Total failures: {total_failures}/{MAX_TOTAL_FAILURES}")
                 return {'success': False, 'error': f"Failed step: {step_text}", 'history': history}
 
             # --- STEP 3: GATE VERIFICATION ---

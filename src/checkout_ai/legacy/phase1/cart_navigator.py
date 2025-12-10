@@ -17,42 +17,58 @@ logger = logging.getLogger(__name__)
 async def navigate_to_cart(page: Page) -> Dict[str, Any]:
     """
     Navigate to shopping cart after items have been added
-    Handles different cart access patterns:
-    - Cart modal/drawer with "View Cart" button
-    - Direct cart icon/link in header
-    - Cart URL patterns
+    Handles different cart access patterns with priority order:
+    1. Try clicking mini cart icon in header (PRIORITY for Indian sites)
+    2. Try cart modal/drawer with "View Cart" button
+    3. URL fallback navigation (last resort)
     
     Returns:
         Dict with 'success': bool, 'cart_url': str, 'method': str
     """
     
-    logger.info("CART NAVIGATION: Starting cart navigation")
+    logger.info("CART NAVIGATION: Starting enhanced cart navigation")
+    logger.info("CART NAVIGATION: Strategy order: Mini Cart Icon → Modal Button → URL Fallback")
     
-    # Strategy 1: Check if cart modal/drawer appeared after adding item (with MORE retries)
-    for attempt in range(5):  # Increased from 3 to 5 attempts
+    # STRATEGY 1: Click mini cart icon in header (PRIORITY - works on Myntra, Flipkart, Ajio)
+    logger.info("CART NAVIGATION: [Strategy 1] Trying mini cart icon in header...")
+    minicart_result = await _click_minicart_icon(page)
+    
+    if minicart_result.get('success'):
+        await asyncio.sleep(2)  # Wait for navigation
+        current_url = page.url
+        logger.info(f"✅ CART NAVIGATION: Success via mini cart icon!")
+        logger.info(f"   Cart URL: {current_url}")
+        logger.info(f"   Clicked: {minicart_result.get('selector')}")
+        
+        return {
+            'success': True,
+            'cart_url': current_url,
+            'method': 'minicart_icon'
+        }
+    else:
+        logger.warning(f"   ❌ Mini cart not found: {minicart_result.get('reason')}")
+    
+    # STRATEGY 2: Check if cart modal/drawer appeared and click View Cart button
+    logger.info("CART NAVIGATION: [Strategy 2] Checking for cart modal/drawer...")
+    
+    for attempt in range(3):
         if attempt > 0:
-            logger.info(f"CART NAVIGATION: Retry attempt {attempt + 1}/5")
-            await asyncio.sleep(2)  # Longer wait between retries
+            logger.info(f"   Retry attempt {attempt + 1}/3")
+            await asyncio.sleep(2)
         else:
-            logger.info("CART NAVIGATION: Looking for cart modal/drawer")
-            await asyncio.sleep(1.5)  # Give modal time to appear and animate
+            await asyncio.sleep(1.5)  # Give modal time to appear
         
         modal_result = await _check_cart_modal(page)
         if modal_result.get('found'):
-            logger.info("CART NAVIGATION: Found cart modal/drawer")
-            logger.info(f"CART NAVIGATION: Modal selector: {modal_result.get('selector')}")
+            logger.info(f"   Found cart modal: {modal_result.get('selector')}")
             
-            # Try to find "View Cart" or "Checkout" button in modal with DOM inspection
             view_cart_clicked = await _click_view_cart_in_modal(page)
             
             if view_cart_clicked:
-                # Wait for navigation to cart page
                 await asyncio.sleep(2)
-                
                 current_url = page.url
-                logger.info("CART NAVIGATION: Successfully navigated to cart")
-                logger.info(f"CART NAVIGATION: Method - Cart modal to View Cart/Checkout button")
-                logger.info(f"CART NAVIGATION: Cart URL - {current_url}")
+                logger.info(f"✅ CART NAVIGATION: Success via modal button!")
+                logger.info(f"   Cart URL: {current_url}")
                 
                 return {
                     'success': True,
@@ -60,24 +76,150 @@ async def navigate_to_cart(page: Page) -> Dict[str, Any]:
                     'method': 'modal_view_cart'
                 }
             else:
-                logger.warning(f"CART NAVIGATION: Attempt {attempt + 1}/5 - Checkout/View Cart button not found or click failed")
+                logger.warning(f"   ❌ Attempt {attempt + 1}/3 - View Cart button not found/clicked")
         else:
-            logger.warning(f"CART NAVIGATION: Attempt {attempt + 1}/5 - Cart modal not found")
+            logger.warning(f"   ❌ Attempt {attempt + 1}/3 - Cart modal not visible")
     
-    # Strategy 1 (modal buttons) failed - report and fail
-    logger.error("CART NAVIGATION: Failed to navigate to cart")
-    logger.error("CART NAVIGATION: No cart modal with clickable button found")
-    logger.error("CART NAVIGATION: This means either:")
-    logger.error("CART NAVIGATION:   1. Cart modal didn't appear after Add to Cart")
-    logger.error("CART NAVIGATION:   2. Cart modal appeared but has no 'Checkout'/'View Cart' button")
-    logger.error("CART NAVIGATION:   3. Modal was hidden by CSS/popup blocker")
+    # STRATEGY 3: URL Fallback (Last Resort)
+    logger.info("CART NAVIGATION: [Strategy 3] Trying URL fallback navigation...")
+    url_result = await _navigate_via_cart_url(page)
+    
+    if url_result.get('success'):
+        logger.info(f"✅ CART NAVIGATION: Success via URL fallback!")
+        logger.info(f"   Cart URL: {url_result.get('cart_url')}")
+        
+        return {
+            'success': True,
+            'cart_url': url_result.get('cart_url'),
+            'method': 'url_fallback'
+        }
+    
+    # ALL STRATEGIES FAILED
+    logger.error("❌ CART NAVIGATION: All strategies failed")
+    logger.error("   Tried: Mini cart icon → Modal button → URL fallback")
+    logger.error("   This may indicate:")
+    logger.error("     1. Cart icon/modal not detected")
+    logger.error("     2. Non-standard cart URL pattern")
+    logger.error("     3. Site requires login to view cart")
     
     return {
         'success': False,
         'cart_url': None,
         'method': 'none',
-        'error': 'No cart modal button found. Cannot navigate to cart.'
+        'error': 'All navigation strategies failed'
     }
+
+
+async def _click_minicart_icon(page: Page) -> Dict[str, Any]:
+    """
+    Click mini cart icon in header (PRIORITY for Indian sites)
+    Looks for cart/bag icons specifically in the header area (top 200px of page)
+    """
+    try:
+        result = await page.evaluate("""
+            () => {
+                // Comprehensive selectors for mini cart icons
+                const minicartSelectors = [
+                    // Indian sites specific (Myntra, Flipkart, Ajio)
+                    'a[href*="/cart"]',
+                    'a[href*="/bag"]',
+                    'a[href*="/basket"]',
+                    'a[href*="/viewcart"]',
+                    'a[href*="/shoppingbag"]',
+                    
+                    // Class-based cart selectors
+                    '[class*="minicart"]',
+                    '[class*="mini-cart"]',
+                    '[class*="cart-icon"]',
+                    '[class*="bag-icon"]',
+                    '[class*="basket-icon"]',
+                    '.cart-link',
+                    '.bag-link',
+                    
+                    // Button-based selectors
+                    'button[class*="cart"]',
+                    'button[class*="bag"]',
+                    'button[aria-label*="cart" i]',
+                    'button[aria-label*="bag" i]',
+                    
+                    // Data attribute selectors
+                    '[data-cart-icon]',
+                    '[data-minicart]',
+                    '[data-bag-icon]',
+                    '[data-action="cart"]',
+                    '[data-action="bag"]',
+                    
+                    // ID-based selectors
+                    '#minicart',
+                    '#mini-cart',
+                    '#cart-icon',
+                    '#bag-icon'
+                ];
+                
+                for (const selector of minicartSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    
+                    for (const el of elements) {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        
+                        // CRITICAL: Must be in header area (top 200px of viewport)
+                        // This prevents clicking on cart links in footer or body
+                        const isInHeader = rect.top >= 0 && rect.top < 200;
+                        
+                        // Must be visible
+                        const isVisible = rect.width > 0 && rect.height > 0 &&
+                                        style.display !== 'none' &&
+                                        style.visibility !== 'hidden' &&
+                                        style.opacity !== '0';
+                        
+                        if (isInHeader && isVisible) {
+                            // Additional validation: should have cart-related text or icon
+                            const text = el.textContent?.toLowerCase() || '';
+                            const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+                            const href = (el.getAttribute('href') || '').toLowerCase();
+                            
+                            const hasCartIndicator = text.includes('cart') ||
+                                                    text.includes('bag') ||
+                                                    text.includes('basket') ||
+                                                    ariaLabel.includes('cart') ||
+                                                    ariaLabel.includes('bag') ||
+                                                    href.includes('cart') ||
+                                                    href.includes('bag');
+                            
+                            if (hasCartIndicator ||selector.includes('cart') || selector.includes('bag')) {
+                                console.log('Found mini cart icon:', selector);
+                                console.log('  Position:', rect.top, rect.left);
+                                console.log('  Text:', text);
+                                console.log('  Href:', href);
+                                
+                                // Click the icon
+                                el.scrollIntoView({ block: 'center', behavior: 'instant' });
+                                el.click();
+                                
+                                return {
+                                    success: true,
+                                    selector: selector,
+                                    text: text,
+                                    href: href
+                                };
+                            }
+                        }
+                    }
+                }
+                
+                return {
+                    success: false,
+                    reason: 'No mini cart icon found in header'
+                };
+            }
+        """)
+        
+        return result
+        
+    except Exception as e:
+        logger.warning(f"Error clicking minicart icon: {e}")
+        return {'success': False, 'reason': str(e)}
 
 
 async def _check_cart_modal(page: Page) -> Dict[str, Any]:
@@ -570,6 +712,74 @@ async def _click_view_cart_in_modal(page: Page) -> bool:
         logger.error(f"CART NAVIGATION: Error in cart navigation - {e}")
         return False
 
+
+async def _navigate_via_cart_url(page: Page) -> Dict[str, Any]:
+    """
+    Navigate to cart via URL fallback (last resort)
+    Tries site-specific cart URLs and common cart URL patterns
+    """
+    try:
+        from src.checkout_ai.utils.cart_urls import get_cart_url_from_domain, CART_URL_PATTERNS
+        from urllib.parse import urlparse
+        
+        current_url = page.url
+        parsed = urlparse(current_url)
+        domain = parsed.netloc
+        
+        logger.info(f"   Trying URL fallback for domain: {domain}")
+        
+        # Try site-specific cart URL first
+        cart_path = get_cart_url_from_domain(domain)
+        cart_url = f"{parsed.scheme}://{domain}{cart_path}"
+        
+        logger.info(f"   Attempting site-specific cart URL: {cart_url}")
+        
+        try:
+            await page.goto(cart_url, wait_until='domcontentloaded', timeout=10000)
+            await asyncio.sleep(1)
+            
+            # Verify we're on cart page
+            new_url = page.url.lower()
+            if 'cart' in new_url or 'bag' in new_url or 'basket' in new_url:
+                logger.info(f"   ✅ Success! Cart URL: {page.url}")
+                return {
+                    'success': True,
+                    'cart_url': page.url,
+                    'method': 'site_specific_url'
+                }
+        except Exception as e:
+            logger.warning(f"   Site-specific URL failed: {e}")
+        
+        # Try common cart URL patterns
+        logger.info(f"   Trying common cart URL patterns...")
+        
+        for pattern in CART_URL_PATTERNS[:5]:  # Try first 5 most common
+            try:
+                test_url = f"{parsed.scheme}://{domain}{pattern}"
+                logger.info(f"   Trying: {test_url}")
+                
+                await page.goto(test_url, wait_until='domcontentloaded', timeout=8000)
+                await asyncio.sleep(1)
+                
+                # Check if page loaded successfully (not 404)
+                page_content = await page.content()
+                if '404' not in page_content and 'not found' not in page_content.lower():
+                    logger.info(f"   ✅ Success with pattern! Cart URL: {page.url}")
+                    return {
+                        'success': True,
+                        'cart_url': page.url,
+                        'method': 'common_url_pattern'
+                    }
+            except Exception as e:
+                logger.debug(f"   Pattern {pattern} failed: {e}")
+                continue
+        
+        logger.warning("   ❌ URL fallback failed: No cart URL worked")
+        return {'success': False, 'reason': 'No cart URL patterns worked'}
+        
+    except Exception as e:
+        logger.error(f"Error in URL fallback: {e}")
+        return {'success': False, 'reason': str(e)}
 
 
 
