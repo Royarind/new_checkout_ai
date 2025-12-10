@@ -1,0 +1,34 @@
+{
+    "customer": {
+        "contact": {
+            "firstName": "Arindam",
+            "lastName": "Roy",
+            "email": "aroy23@gmail.com",
+            "phone": "9820132767"
+        },
+        "shippingAddress": {
+            "addressLine1": "903, Alina, Hiranandani Estate",
+            "addressLine2": "off Godhbunder Rd",
+            "city": "Thane West",
+            "province": "Maharashtra",
+            "postalCode": "400607",
+            "country": "India"
+        },
+        "wallet": {
+            "preferredPaymentMethod": "credit_card",
+            "cardNumber": "4111111111111111",
+            "cardExpiry": "12/25",
+            "cardCVV": "123"
+        }
+    },
+    "tasks": [
+        {
+            "url": "https://www.myntra.com/tshirts/puma/puma-men-slim-fit-polo-t-shirt/30850266/buy",
+            "quantity": 1,
+            "selectedVariant": {
+                "color": "Pink",
+                "size": "S"
+            }
+        }
+    ]
+}
