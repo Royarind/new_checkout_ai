@@ -105,9 +105,20 @@ class UniversalDOMFinder:
             return {'verified': False, 'matched_text': None, 'method': f'OCR error: {str(e)}'}
 
     def _wrap_js_with_sanitization(self, js_code: str) -> str:
-        """Wraps JS code to sanitize return values (remove non-ASCII characters)."""
+        """Wraps JS code to sanitize return values (remove non-ASCII characters) and inject exclusion helper."""
+        # Load exclusion helper
+        try:
+            exclusion_helper = self._load_js('exclusion_helper.js')
+        except FileNotFoundError:
+            # Backward compatibility: if exclusion helper doesn't exist, proceed without it
+            logger.warning("exclusion_helper.js not found, proceeding without exclusion logic")
+            exclusion_helper = "// Exclusion helper not loaded\nfunction isInExcludedSection() { return false; }"
+        
         return f"""
         async (args) => {{
+            // Inject exclusion helper
+            {exclusion_helper}
+            
             const originalFunc = {js_code};
             try {{
                 let result = originalFunc(args);
@@ -143,28 +154,62 @@ class UniversalDOMFinder:
         """
 
     async def _detect_product_container(self) -> Optional[str]:
-        """Detect the main product container to restrict search scope."""
+        """Detect the main product container to restrict search scope, excluding recommendation sections."""
         try:
             container = await self.page.evaluate("""
                 () => {
-                    // Common product container selectors
-                    const selectors = [
+                    const hostname = window.location.hostname;
+                    
+                    // Site-specific selectors (highest priority - for Indian e-commerce)
+                    const siteSelectors = {
+                        'myntra.com': ['.pdp-main', '.pdp-product-detail', '.pdpContent'],
+                        'amazon.in': ['#dp-container', '#ppd', '#rightCol', '#centerCol'],
+                        'amazon.com': ['#dp-container', '#ppd', '#rightCol', '#centerCol'],
+                        'ajio.com': ['.prod-desc', '.pdp-cont', '.product-content'],
+                        'flipkart.com': ['._1YokD2', '._2c7YLP', '.col-8-12'],
+                        'bigbasket.com': ['.product-main', '.product-detail'],
+                        'swiggy.com': ['.product-container', '.item-details']
+                    };
+                    
+                    // Try site-specific selectors first
+                    for (const [site, selectors] of Object.entries(siteSelectors)) {
+                        if (hostname.includes(site)) {
+                            for (const sel of selectors) {
+                                const el = document.querySelector(sel);
+                                if (el && el.offsetHeight > 100) {
+                                    console.log('[CONTAINER] Using site-specific selector:', sel, 'for', site);
+                                    return sel;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Generic fallback selectors (maintain backward compatibility)
+                    const genericSelectors = [
                         '[data-testid="product-container"]',
                         '.product-detail',
                         '.product-main',
                         '#product-main',
                         '.pdp-main',
                         '.product-info-main',
-                        'main',
-                        'body' // Fallback
+                        'main'
+                        // NOTE: Removed 'body' fallback - it was causing selection of elements 
+                        // from "related products" sections. Return null instead to trigger
+                        // more careful element selection.
                     ];
                     
-                    for (const s of selectors) {
+                    for (const s of genericSelectors) {
                         const el = document.querySelector(s);
-                        if (el && el.offsetHeight > 100) { // Ensure it's visible/substantial
+                        if (el && el.offsetHeight > 100) {
+                            console.log('[CONTAINER] Using generic selector:', s);
                             return s;
                         }
                     }
+                    
+                    // If no container found, return null (not 'body')
+                    // This allows search scripts to work without scope restriction
+                    // but they should still apply exclusion logic
+                    console.log('[CONTAINER] No specific container found, will search entire page with exclusions');
                     return null;
                 }
             """)

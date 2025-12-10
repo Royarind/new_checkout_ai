@@ -47,7 +47,7 @@
     if (!root) return { found: false, phase: 'overlay', error: 'Container not found' };
 
     // Function to create overlay for element
-    const createOverlay = (element, index, color = '#ff0000') => {
+    const createOverlay = (element, index, color = '#ff0000', label = '') => {
         const rect = element.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return null;
 
@@ -60,18 +60,19 @@
             top: ${rect.top}px;
             width: ${rect.width}px;
             height: ${rect.height}px;
-            border: 2px solid transparent;
-            background: transparent;
+            border: 3px solid ${color};
+            background: ${color}33;
             pointer-events: none;
             font-family: monospace;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
-            color: transparent;
+            color: ${color};
             display: flex;
             align-items: center;
             justify-content: center;
+            z-index: 999999;
         `;
-        overlay.textContent = index;
+        overlay.textContent = label || `#${index}`;
         overlayContainer.appendChild(overlay);
         return overlay;
     };
@@ -126,166 +127,179 @@
     const allPotentialElements = collectElements(root, clickableSelectors);
 
     for (const element of allPotentialElements) {
+        // CRITICAL: Skip elements in excluded sections (recommendations, related products, etc.)
+        // This function is injected by service.py via exclusion_helper.js
+        if (typeof isInExcludedSection === 'function' && isInExcludedSection(element)) {
+            // Visualize excluded elements with orange overlay
+            const rect = element.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                createOverlay(element, '', '#ff6600', 'EXCLUDED');
+            }
+            continue;
+        }
+
         // Skip localization elements
         if (element.id === 'LocalizationForm-Select' ||
             element.classList && element.classList.contains('country-picker') ||
             element.name === 'country_code') {
             continue;
+        }
 
-            // Skip hidden or non-interactive elements
-            const style = window.getComputedStyle(element);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
-            if (element.tagName === 'INPUT' && (element.type === 'hidden' || element.type === 'text' || element.type === 'search')) continue;
+        // Skip hidden or non-interactive elements
+        const style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+        if (element.tagName === 'INPUT' && (element.type === 'hidden' || element.type === 'text' || element.type === 'search')) continue;
 
-            const rect = element.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                const currentIndex = elementIndex++;
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+            const currentIndex = elementIndex++;
 
-                // Check if this element matches our target
-                let isMatch = false;
-                let elementType = 'general';
+            // Check if this element matches our target
+            let isMatch = false;
+            let elementType = 'general';
 
-                // Universal quantity detection patterns
-                const ariaLabel = (element.getAttribute('aria-label') || '').toLowerCase();
-                const className = (typeof element.className === 'string' ? element.className : element.className.toString()).toLowerCase();
-                const elementId = (element.id || '').toLowerCase();
-                const elementName = (element.name || '').toLowerCase();
-                const buttonText = (element.textContent || '').trim();
+            // Universal quantity detection patterns
+            const ariaLabel = (element.getAttribute('aria-label') || '').toLowerCase();
+            const className = (typeof element.className === 'string' ? element.className : element.className.toString()).toLowerCase();
+            const elementId = (element.id || '').toLowerCase();
+            const elementName = (element.name || '').toLowerCase();
+            const buttonText = (element.textContent || '').trim();
 
-                // PRIORITY 1: Cart button detection - MUST come before quantity detection
-                if (normalizedVal.includes('cart') || normalizedVal.includes('add')) {
-                    if (element.tagName === 'BUTTON' && (
-                        element.name === 'add' ||
-                        element.name?.includes('add-to') ||
-                        element.id?.includes('add-to') ||
-                        (element.classList && element.classList.contains('add-to-cart')) ||
-                        (element.classList && element.classList.contains('add-to-bag')) ||
-                        buttonText.toLowerCase().includes('add to cart') ||
-                        buttonText.toLowerCase().includes('add to bag') ||
-                        buttonText.toLowerCase().includes('buy now') ||
-                        // Match standalone "ADD" button near product area
-                        (buttonText.toLowerCase().trim() === 'add' && element.type === 'submit') ||
-                        (buttonText.toLowerCase() === 'add' && element.classList && element.classList.contains('product')))) {
-                        elementType = 'cart_button';
-                        isMatch = true;
-                    }
-                }
-
-                // PRIORITY 2: Quantity field detection - exclude cart buttons
-                if (!isMatch && (elementName.includes('quantity') || elementName.includes('qty') ||
-                    elementId.includes('quantity') || elementId.includes('qty') ||
-                    (element.classList && element.classList.contains('quantity')) || (element.classList && element.classList.contains('qty'))) &&
-                    !buttonText.toLowerCase().includes('add') &&
-                    !buttonText.toLowerCase().includes('cart') &&
-                    !buttonText.toLowerCase().includes('buy') &&
-                    !ariaLabel.includes('add') &&
-                    !ariaLabel.includes('cart') &&
-                    !(element.classList && element.classList.contains('cart')) &&
-                    !(element.classList && element.classList.contains('add-to-cart'))) {
-
-                    // Only match actual form inputs, not buttons
-                    if (element.tagName === 'SELECT' || element.tagName === 'INPUT' ||
-                        (element.tagName === 'BUTTON' && element.type !== 'submit')) {
-
-                        // Determine actual field type
-                        if (element.tagName === 'SELECT') {
-                            elementType = 'quantity_dropdown';
-                        } else if (element.type === 'number' || element.tagName === 'INPUT') {
-                            elementType = 'quantity_input';
-                        } else if (element.classList && element.classList.contains('dropdown') || element.getAttribute('role') === 'combobox') {
-                            elementType = 'quantity_dropdown';
-                        } else {
-                            elementType = 'quantity_input'; // fallback
-                        }
-                        isMatch = true;
-                    }
-                }
-                // Universal quantity buttons (only if no input field found)
-                else if (element.tagName === 'BUTTON' && !document.querySelector('input[type="number"], input[name*="quantity"], input[id*="quantity"], input[class*="quantity"]') && (
-                    ariaLabel.includes('increase') || ariaLabel.includes('add') || ariaLabel.includes('plus') ||
-                    (element.classList && element.classList.contains('plus')) || (element.classList && element.classList.contains('increase')) || (element.classList && element.classList.contains('increment')) ||
-                    buttonText === '+' || buttonText === '＋' || buttonText.includes('+'))) {
-                    elementType = 'quantity_increase';
+            // PRIORITY 1: Cart button detection - MUST come before quantity detection
+            if (normalizedVal.includes('cart') || normalizedVal.includes('add')) {
+                if (element.tagName === 'BUTTON' && (
+                    element.name === 'add' ||
+                    element.name?.includes('add-to') ||
+                    element.id?.includes('add-to') ||
+                    (element.classList && element.classList.contains('add-to-cart')) ||
+                    (element.classList && element.classList.contains('add-to-bag')) ||
+                    buttonText.toLowerCase().includes('add to cart') ||
+                    buttonText.toLowerCase().includes('add to bag') ||
+                    buttonText.toLowerCase().includes('buy now') ||
+                    // Match standalone "ADD" button near product area
+                    (buttonText.toLowerCase().trim() === 'add' && element.type === 'submit') ||
+                    (buttonText.toLowerCase() === 'add' && element.classList && element.classList.contains('product')))) {
+                    elementType = 'cart_button';
                     isMatch = true;
                 }
-                // Universal decrease button patterns (only if no input field found)
-                else if (element.tagName === 'BUTTON' && !document.querySelector('input[type="number"], input[name*="quantity"], input[id*="quantity"], input[class*="quantity"]') && (
-                    ariaLabel.includes('decrease') || ariaLabel.includes('subtract') || ariaLabel.includes('minus') ||
-                    (element.classList && element.classList.contains('minus')) || (element.classList && element.classList.contains('decrease')) || (element.classList && element.classList.contains('decrement')) ||
-                    buttonText === '-' || buttonText === '－' || buttonText.includes('-'))) {
-                    elementType = 'quantity_decrease';
-                    isMatch = true;
-                } else {
-                    // Regular text matching for other elements
-                    const texts = [
-                        element.textContent,
-                        element.value,
-                        element.getAttribute('aria-label'),
-                        element.getAttribute('title'),
-                        element.getAttribute('alt')
-                    ];
+            }
 
-                    // For radio buttons, also check associated label
-                    if (element.type === 'radio') {
-                        const label = document.querySelector(`label[for="${element.id}"]`);
-                        if (label) texts.push(label.textContent);
+            // PRIORITY 2: Quantity field detection - exclude cart buttons
+            if (!isMatch && (elementName.includes('quantity') || elementName.includes('qty') ||
+                elementId.includes('quantity') || elementId.includes('qty') ||
+                (element.classList && element.classList.contains('quantity')) || (element.classList && element.classList.contains('qty'))) &&
+                !buttonText.toLowerCase().includes('add') &&
+                !buttonText.toLowerCase().includes('cart') &&
+                !buttonText.toLowerCase().includes('buy') &&
+                !ariaLabel.includes('add') &&
+                !ariaLabel.includes('cart') &&
+                !(element.classList && element.classList.contains('cart')) &&
+                !(element.classList && element.classList.contains('add-to-cart'))) {
+
+                // Only match actual form inputs, not buttons
+                if (element.tagName === 'SELECT' || element.tagName === 'INPUT' ||
+                    (element.tagName === 'BUTTON' && element.type !== 'submit')) {
+
+                    // Determine actual field type
+                    if (element.tagName === 'SELECT') {
+                        elementType = 'quantity_dropdown';
+                    } else if (element.type === 'number' || element.tagName === 'INPUT') {
+                        elementType = 'quantity_input';
+                    } else if (element.classList && element.classList.contains('dropdown') || element.getAttribute('role') === 'combobox') {
+                        elementType = 'quantity_dropdown';
+                    } else {
+                        elementType = 'quantity_input'; // fallback
                     }
+                    isMatch = true;
+                }
+            }
+            // Universal quantity buttons (only if no input field found)
+            else if (element.tagName === 'BUTTON' && !document.querySelector('input[type="number"], input[name*="quantity"], input[id*="quantity"], input[class*="quantity"]') && (
+                ariaLabel.includes('increase') || ariaLabel.includes('add') || ariaLabel.includes('plus') ||
+                (element.classList && element.classList.contains('plus')) || (element.classList && element.classList.contains('increase')) || (element.classList && element.classList.contains('increment')) ||
+                buttonText === '+' || buttonText === '＋' || buttonText.includes('+'))) {
+                elementType = 'quantity_increase';
+                isMatch = true;
+            }
+            // Universal decrease button patterns (only if no input field found)
+            else if (element.tagName === 'BUTTON' && !document.querySelector('input[type="number"], input[name*="quantity"], input[id*="quantity"], input[class*="quantity"]') && (
+                ariaLabel.includes('decrease') || ariaLabel.includes('subtract') || ariaLabel.includes('minus') ||
+                (element.classList && element.classList.contains('minus')) || (element.classList && element.classList.contains('decrease')) || (element.classList && element.classList.contains('decrement')) ||
+                buttonText === '-' || buttonText === '－' || buttonText.includes('-'))) {
+                elementType = 'quantity_decrease';
+                isMatch = true;
+            } else {
+                // Regular text matching for other elements
+                const texts = [
+                    element.textContent,
+                    element.value,
+                    element.getAttribute('aria-label'),
+                    element.getAttribute('title'),
+                    element.getAttribute('alt')
+                ];
 
-                    // Regular text matching (cart button already handled above)
-                    if (!isMatch) {
-                        for (const text of texts) {
-                            if (match(text)) {
-                                isMatch = true;
-                                break;
-                            }
+                // For radio buttons, also check associated label
+                if (element.type === 'radio') {
+                    const label = document.querySelector(`label[for="${element.id}"]`);
+                    if (label) texts.push(label.textContent);
+                }
+
+                // Regular text matching (cart button already handled above)
+                if (!isMatch) {
+                    for (const text of texts) {
+                        if (match(text)) {
+                            isMatch = true;
+                            break;
                         }
                     }
                 }
+            }
 
-                // Create overlay (green for matches, red for others)
-                const overlayColor = isMatch ? '#00ff00' : '#ff0000';
-                createOverlay(element, currentIndex, overlayColor);
+            // Create overlay (bright green for matches, yellow for candidates)
+            const overlayColor = isMatch ? '#00ff00' : '#ffdd00';
+            const overlayLabel = isMatch ? `✓ ${currentIndex}` : currentIndex.toString();
+            createOverlay(element, currentIndex, overlayColor, overlayLabel);
 
-                // Store element info
-                indexedElements.push({
-                    index: currentIndex,
-                    element: element,
-                    isMatch: isMatch,
-                    elementType: elementType,
-                    text: element.textContent?.trim() || '',
-                    value: element.value || '',
-                    tagName: element.tagName,
-                    type: element.type || '',
-                    id: element.id || '',
-                    className: element.className || ''
-                });
+            // Store element info
+            indexedElements.push({
+                index: currentIndex,
+                element: element,
+                isMatch: isMatch,
+                elementType: elementType,
+                text: element.textContent?.trim() || '',
+                value: element.value || '',
+                tagName: element.tagName,
+                type: element.type || '',
+                id: element.id || '',
+                className: element.className || ''
+            });
 
-                if (isMatch && matchedIndex === null) {
-                    matchedIndex = currentIndex;
-                }
+            if (isMatch && matchedIndex === null) {
+                matchedIndex = currentIndex;
             }
         }
     }
+}
 
-    if (matchedIndex !== null) {
-        // Determine action based on element type
-        const matchedElement = indexedElements.find(el => el.index === matchedIndex);
-        let action = 'click';
+if (matchedIndex !== null) {
+    // Determine action based on element type
+    const matchedElement = indexedElements.find(el => el.index === matchedIndex);
+    let action = 'click';
 
-        if (matchedElement) {
-            if (matchedElement.elementType === 'quantity_input') {
-                action = 'quantity_input';
-            } else if (matchedElement.elementType === 'quantity_dropdown') {
-                action = 'quantity_dropdown';
-            } else if (matchedElement.elementType === 'quantity_increase' || matchedElement.elementType === 'quantity_decrease') {
-                action = 'quantity_button';
-            } else if (matchedElement.elementType === 'cart_button') {
-                action = 'click';
-            }
+    if (matchedElement) {
+        if (matchedElement.elementType === 'quantity_input') {
+            action = 'quantity_input';
+        } else if (matchedElement.elementType === 'quantity_dropdown') {
+            action = 'quantity_dropdown';
+        } else if (matchedElement.elementType === 'quantity_increase' || matchedElement.elementType === 'quantity_decrease') {
+            action = 'quantity_button';
+        } else if (matchedElement.elementType === 'cart_button') {
+            action = 'click';
         }
-
-        return { found: true, action: action, elementIndex: matchedIndex, allElements: indexedElements, phase: 'overlay' };
     }
 
-    return { found: false, phase: 'overlay' };
+    return { found: true, action: action, elementIndex: matchedIndex, allElements: indexedElements, phase: 'overlay' };
+}
+
+return { found: false, phase: 'overlay' };
 }
