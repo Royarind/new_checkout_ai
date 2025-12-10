@@ -129,7 +129,10 @@ class AgentOrchestrator:
 
         while current_step_idx < len(plan_steps):
             step_text = plan_steps[current_step_idx]
-            logger.info(f"ORCHESTRATOR: Executing Step {current_step_idx + 1}/{len(plan_steps)}: {step_text}")
+            logger.info(f"ORCHESTRATOR: ============================================")
+            logger.info(f"ORCHESTRATOR: Executing Step {current_step_idx + 1}/{len(plan_steps)}")
+            logger.info(f"ORCHESTRATOR: Step Text: '{step_text}'")
+            logger.info(f"ORCHESTRATOR: ============================================")
             
             # Execute Step
             step_success = False
@@ -137,6 +140,7 @@ class AgentOrchestrator:
                 try:
                     # Browser executes step
                     # We wrap the string in current_step_class deps
+                    logger.info(f"ORCHESTRATOR: Passing to Browser Agent with context: current_step='{step_text}'")
                     result = await browser.run(step_text, deps=current_step_class(current_step=step_text))
                     result_str = str(result.output) # Browser returns string now
                     logger.info(f"ORCHESTRATOR: Browser Result: {result_str}")
