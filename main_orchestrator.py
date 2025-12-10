@@ -622,33 +622,143 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 e.returnValue = '';
             });
             
-            // Inject CSS to hide geolocation and common modals
+            // Inject comprehensive CSS to HIDE popups immediately
             const style = document.createElement('style');
             style.textContent = `
-                /* Hide geolocation modals */
+                /* === GEOLOCATION & LOCATION MODALS === */
                 [class*="geolocation"], [id*="geolocation"],
                 [class*="location"], [id*="location"],
                 [class*="country-selector"], [id*="country-selector"],
                 [class*="region-selector"], [id*="region-selector"],
-                /* Common modal patterns */
                 [class*="modal"][class*="location"],
                 [class*="popup"][class*="location"],
                 [class*="overlay"][class*="location"],
-                /* Specific selectors */
                 .geolocation-modal, #geolocation-modal,
                 .location-popup, #location-popup,
-                .country-modal, #country-modal {
+                .country-modal, #country-modal,
+                
+                /* === PROMOTIONAL & NEWSLETTER POPUPS === */
+                [class*="promo"][class*="modal"], [id*="promo"][id*="modal"],
+                [class*="newsletter"], [id*="newsletter"],
+                [class*="signup-modal"], [id*="signup"],
+                [class*="discount-popup"], [id*="discount"],
+                [class*="offer-modal"], [id*="offer"],
+                [class*="subscribe"], [id*="subscribe"],
+                .promo-popup, .promotional-modal,
+                .newsletter-popup, .signup-overlay,
+                #newsletter-modal, #promo-modal,
+                #discount-popup, #offer-overlay,
+                
+                /* === EMAIL CAPTURE & LEAD GEN === */
+                [class*="email-capture"], [id*="email-capture"],
+                [class*="lead-gen"], [id*="lead"],
+                [class*="popup"][class*="email"],
+                .email-popup, .email-overlay,
+                
+                /* === CHAT WIDGETS (hide but don't remove for now) === */
+                #intercom-container, .intercom-launcher,
+                #drift-widget, .drift-frame-controller,
+                #hubspot-messages-iframe-container,
+                .crisp-client, #crisp-chatbox,
+                .tawk-min-container,
+                .livechat-container,
+                [class*="chat-widget"], [id*="chat-widget"],
+                [class*="messenger"], [id*="messenger"],
+                
+                /* === COOKIE CONSENT (let JavaScript handle acceptance) === */
+                /* Don't hide cookie banners - we need to click Accept */
+                
+                /* === GENERIC MODAL/POPUP PATTERNS === */
+                .modal-backdrop[style*="display: block"],
+                .overlay[style*="display: block"],
+                [aria-modal="true"][role="dialog"]:not([class*="cart"]):not([id*="cart"]),
+                
+                /* === EXIT INTENT === */
+                [class*="exit-intent"], [id*="exit-intent"],
+                .exit-popup, #exit-modal,
+                
+                /* === SURVEY & FEEDBACK === */
+                [class*="survey-modal"], [id*="survey"],
+                [class*="feedback-popup"], [id*="feedback"],
+                
+                /* === APP DOWNLOAD PROMPTS === */
+                [class*="app-download"], [id*="app-download"],
+                [class*="mobile-app"], [id*="mobile-app"],
+                
+                /* === SOCIAL PROOF === */
+                [class*="social-proof"], [id*="social-proof"],
+                [class*="recently-viewed"], [id*="recently-viewed"],
+                
+                /* === STICKY BANNERS (top promotional bars) === */
+                [class*="announcement-bar"][style*="position: fixed"],
+                [class*="promo-bar"][style*="position: fixed"],
+                [class*="top-banner"][style*="position: sticky"]
+                {
                     display: none !important;
                     visibility: hidden !important;
                     opacity: 0 !important;
                     pointer-events: none !important;
+                    height: 0 !important;
+                    width: 0 !important;
+                    overflow: hidden !important;
+                }
+                
+                /* === OVERLAY BACKDROPS === */
+                .modal-backdrop, .popup-backdrop,
+                [class*="overlay-backdrop"],
+                [data-backdrop], [data-overlay] {
+                    display: none !important;
+                    visibility: hidden !important;
                 }
             `;
-            `;
-            document.head.appendChild(style);
+            
+            // Apply CSS immediately (before DOM loads)
+            if (document.head) {
+                document.head.appendChild(style);
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.head.appendChild(style);
+                });
+            }
+            
+            // Mutation observer to catch dynamically added popups
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === 1) { // Element node
+                            // Check if it's a modal/popup
+                            const className = node.className || '';
+                            const id = node.id || '';
+                            const isPopup = 
+                                className.includes('modal') ||
+                                className.includes('popup') ||
+                                className.includes('overlay') ||
+                                className.includes('promo') ||
+                                className.includes('newsletter') ||
+                                id.includes('modal') ||
+                                id.includes('popup');
+                            
+                            if (isPopup && !className.includes('cart')) {
+                                node.style.display = 'none';
+                                node.style.visibility = 'hidden';
+                            }
+                        }
+                    });
+                });
+            });
+            
+            // Start observing once DOM is ready
+            document.addEventListener('DOMContentLoaded', () => {
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            });
             
             // Set zoom level to 75% to show more content
-            document.body.style.zoom = "75%";
+            document.addEventListener('DOMContentLoaded', () => {
+                document.body.style.zoom = "75%";
+            });
         """)
         
         if STEALTH_AVAILABLE:

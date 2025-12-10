@@ -31,6 +31,16 @@ class AgentOrchestrator:
         if customer_data:
             set_customer_data(customer_data)
     
+    async def _auto_dismiss_popups(self):
+        """Automatically dismiss popups without logging unless popups are found"""
+        try:
+            from src.checkout_ai.utils.popup_dismisser import dismiss_popups
+            dismissed = await dismiss_popups(self.page)
+            if dismissed:
+                logger.info("ORCHESTRATOR: Auto-dismissed popups")
+        except Exception as e:
+            logger.debug(f"ORCHESTRATOR: Auto-dismiss error: {e}")
+    
     async def execute_task(self, task_description: str, customer_data: Dict = None) -> Dict[str, Any]:
         """
         Execute a task using the autonomous agent flow:
@@ -138,12 +148,20 @@ class AgentOrchestrator:
             step_success = False
             for attempt in range(max_retries):
                 try:
+                    # Proactive popup dismissal BEFORE step execution for critical actions
+                    step_lower = step_text.lower()
+                    if any(keyword in step_lower for keyword in ['navigate', 'fill', 'checkout', 'add to cart']):
+                        await self._auto_dismiss_popups()
+                    
                     # Browser executes step
                     # We wrap the string in current_step_class deps
                     logger.info(f"ORCHESTRATOR: Passing to Browser Agent with context: current_step='{step_text}'")
                     result = await browser.run(step_text, deps=current_step_class(current_step=step_text))
                     result_str = str(result.output) # Browser returns string now
                     logger.info(f"ORCHESTRATOR: Browser Result: {result_str}")
+                    
+                    # Proactive popup dismissal AFTER step execution (catch delayed popups)
+                    await self._auto_dismiss_popups()
                     
                     history.append({"step": step_text, "result": result_str})
 

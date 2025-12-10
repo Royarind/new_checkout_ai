@@ -157,6 +157,15 @@ Always infer the country from page content (country dropdown, currency, labels, 
 Never create fake personal or payment data; rely on given values or stored customer data via tools.
 </country_handling>
 
+<popup_awareness>
+**Popups can block your actions.** If any action fails with element errors:
+1. Call `dismiss_popups()` immediately
+2. Retry the failed action
+3. Most popups are auto-dismissed by the orchestrator, but you can manually dismiss if needed
+
+Note: Cookie banners, newsletters, chat widgets are handled automatically. Only call `dismiss_popups()` if you encounter actual blocking issues.
+</popup_awareness>
+
 <execution_protocol>
 1. **Read the current step text carefully** (e.g., "Select variant: size=M", "Fill shipping address").
 2. **Identify the ONE action required** by this step.
