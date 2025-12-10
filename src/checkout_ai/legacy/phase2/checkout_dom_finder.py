@@ -5,6 +5,7 @@ Handles buttons, form inputs, and dropdowns
 """
 
 import asyncio
+import time
 from datetime import datetime
 from src.checkout_ai.dom.service import UniversalDOMFinder
 from src.checkout_ai.legacy.phase2.smart_form_filler import SmartFormFiller
@@ -300,7 +301,11 @@ async def find_and_click_button(page, keywords, max_retries=3):
                                 }
                                 
                                 // Filter unwanted buttons
-                                const unwantedKeywords = ['continue shopping', 'shop now', 'keep shopping', 'back to shop', 'return to'];
+                                const unwantedKeywords = [
+                                    'continue shopping', 'shop now', 'keep shopping', 'back to shop', 'return to',
+                                    'apply', 'promo', 'coupon', 'discount', 'gift card',  // Exclude Apply/Coupon buttons
+                                    'edit cart', 'edit', 'remove', 'delete'  // Exclude cart editing buttons
+                                ];
                                 const textLower = text.toLowerCase();
                                 const isUnwanted = unwantedKeywords.some(kw => textLower.includes(kw));
                                 
@@ -621,14 +626,13 @@ async def find_input_by_label(page, label_keywords, retry_count=0):
                                         if (allFieldText.includes('address') && !allFieldText.includes('email')) continue;
                                     }
                                     if (normKeyword.includes('phone') || normKeyword.includes('mobile') || normKeyword.includes('tel')) {
-                                        // Phone shouldn't match name, email, city
-                                        // ALLOW 'address' if it's part of a compound label like "Shipping Address Phone"
+                                        // Phone shouldn't match name, email, city, AND ESPECIALLY NOT LAST NAME
                                         if (allFieldText.includes('name') || allFieldText.includes('email') || 
-                                            allFieldText.includes('city')) continue;
+                                            allFieldText.includes('city') || allFieldText.includes('last') || 
+                                            allFieldText.includes('first') || allFieldText.includes('surname')) continue;
                                             
-                                        // Only block 'address' if 'phone' isn't in the matched text part (heuristic)
-                                        // Actually, let's just be less strict about 'address' for phone, 
-                                        // as "Shipping Address Phone" is common.
+                                        // Also check if field is explicitly for names
+                                        if (fieldName.includes('name') || fieldId.includes('name')) continue;
                                     }
                                     if (normKeyword.includes('city')) {
                                         if (allFieldText.includes('state') || allFieldText.includes('country') || allFieldText.includes('zip')) continue;
@@ -823,18 +827,34 @@ async def fill_input_field(page, label_keywords, value, max_retries=3):
             except Exception:
                 pass # Element might be detached, will catch in fill
             
-
             
-            # Filling Strategy: Fast Type -> Force Fill -> JS
+            # Filling Strategy: Human-like Type -> Force Fill -> JS
             fill_success = False
             
-            # 1. Fast Type (Primary)
+            # 1. Human-like Type (Primary) - with proper field clearing
             try:
                 await element.focus()
-                await element.fill(value) # Playwright fill is faster/better than type for forms
+                await asyncio.sleep(0.1)
+                
+                # CRITICAL: Clear field first to prevent concatenation
+                # Triple-click to select all, then delete
+                await element.click(click_count=3)
+                await asyncio.sleep(0.05)
+                await page.keyboard.press('Backspace')
+                await asyncio.sleep(0.05)
+                
+                # Type with human-like delay (50-100ms per character)
+                await element.type(value, delay=75)  # 75ms = realistic fast typing
                 fill_success = True
             except Exception as e:
-                log(logger, 'warning', f"Fill failed for '{label_keywords[0]}', trying JS: {e}", 'ADDRESS_FILL', 'DOM')
+                log(logger, 'warning', f"Type failed for '{label_keywords[0]}', trying fill: {e}", 'ADDRESS_FILL', 'DOM')
+                
+                # Fallback: Use instant fill if type fails
+                try:
+                    await element.fill(value)
+                    fill_success = True
+                except Exception as e2:
+                    log(logger, 'warning', f"Fill also failed for '{label_keywords[0]}', trying JS: {e2}", 'ADDRESS_FILL', 'DOM')
             
             # 2. JS Injection (Fallback)
             if not fill_success:

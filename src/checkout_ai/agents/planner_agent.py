@@ -180,10 +180,22 @@ Do not fabricate country-specific details if the request does not give them.
 
 5. GATE AWARENESS:
    - Your plan should naturally include points where progress can be checked:
-     - After adding to cart.
-     - After filling contact and address.
-     - After selecting shipping.
-     - On reaching payment / review page.
+   - **VARIANT SELECTION**: Always required BEFORE adding to cart:
+  * Color/Style/Size → "Select variant: [type]=[value]" (e.g., "Select variant: color=Blue")
+  * **Quantity**: ONLY create step if quantity > 1 (1 is default, skip "Set quantity: 1" step entirely)
+  * If multiple variants exist (e.g., color + size), create separate sequential steps for each.
+  * CRITICAL: Ensure variant selections are BEFORE "Click 'Add to Cart'" in the plan.
+  
+- **ADD TO CART**: After all variants selected → "Click 'Add to Cart'" (NOT before variants!)
+
+- **CART & CHECKOUT**: 
+  * After adding to cart → "Navigate to Cart (click 'View Cart' or cart icon)"
+  * Then → "Click 'Proceed to Checkout'" or "Click 'Checkout'",
+  "fill email: user@example.com",
+  "click continue",
+  "Fill contact details (first name, last name, phone)",
+  "Fill shipping address (Country, address lines, city, state, ZIP/postcode)",
+  "click continue",
 </rules>
 
 <output_format>

@@ -243,8 +243,19 @@ async def _click_view_cart_in_modal(page: Page) -> bool:
         # Get all possible keywords
         all_keywords = VIEW_CART_KEYWORDS.all_keywords()
         
-        # Add common variations
-        additional_keywords = ['view cart', 'view bag', 'go to cart', 'go to bag', 'checkout', 'cart', 'bag', 'view']
+        # Add common variations - CHECKOUT FIRST (most common after add-to-cart)
+        additional_keywords = [
+            'checkout',  # PRIORITY: Most sites show "Checkout" in modal
+            'proceed to checkout',
+            'go to checkout',
+            'view cart',
+            'view bag',
+            'go to cart',
+            'go to bag',
+            'cart',
+            'bag',
+            'view'
+        ]
         for kw in additional_keywords:
             if kw not in all_keywords:
                 all_keywords.append(kw)

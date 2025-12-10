@@ -68,81 +68,117 @@ async def fill_email_tool(email: str = None) -> Dict[str, Any]:
     return {"success": result.get('success', False)}
 
 async def fill_contact_tool(first_name: str = None, last_name: str = None, phone: str = None) -> Dict[str, Any]:
-    """Fill contact fields in parallel"""
+    """Fill contact fields sequentially to prevent field collision"""
     from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
     from src.checkout_ai.utils.checkout_keywords import FIRST_NAME_LABELS, LAST_NAME_LABELS, PHONE_LABELS
     page = get_page()
     
     # Use provided values or get from customer data
     customer_data = get_customer_data()
-    if customer_data:
-        contact = customer_data.get('contact', {})
-        first_name = first_name or contact.get('firstName')
-        last_name = last_name or contact.get('lastName')
-        phone = phone or contact.get('phone')
+    if not customer_data:
+        logger.error("❌ No customer data available!")
+        return {"success": False, "filled_count": 0, "error": "Customer data not provided"}
     
-    tasks = []
+    contact = customer_data.get('contact', {})
+    first_name = first_name or contact.get('firstName')
+    last_name = last_name or contact.get('lastName')
+    phone = phone or contact.get('phone')
+    
+    # CRITICAL: Fill sequentially to prevent race conditions
+    success_count = 0
+    total_count = 0
+    
     if first_name:
-        tasks.append(fill_input_field(page, FIRST_NAME_LABELS, first_name, max_retries=2))
+        total_count += 1
+        result = await fill_input_field(page, FIRST_NAME_LABELS, first_name, max_retries=2)
+        if result.get('success'):
+            success_count += 1
+        await asyncio.sleep(0.3)
+    
     if last_name:
-        tasks.append(fill_input_field(page, LAST_NAME_LABELS, last_name, max_retries=2))
+        total_count += 1
+        result = await fill_input_field(page, LAST_NAME_LABELS, last_name, max_retries=2)
+        if result.get('success'):
+            success_count += 1
+        await asyncio.sleep(0.3)
+    
     if phone:
-        tasks.append(fill_input_field(page, PHONE_LABELS, phone, max_retries=2))
+        total_count += 1
+        result = await fill_input_field(page, PHONE_LABELS, phone, max_retries=2)
+        if result.get('success'):
+            success_count += 1
     
-    results = await asyncio.gather(*tasks)
-    success_count = sum(1 for r in results if r.get('success', False))
-    
-    return {"success": success_count == len(results) if results else False, "filled_count": success_count}
+    return {"success": success_count == total_count if total_count > 0 else False, "filled_count": success_count}
 
 async def fill_address_tool(address: str = None, city: str = None, state: str = None, zip_code: str = None, country: str = None) -> Dict[str, Any]:
-    """Fill address fields with correct orchestration (Country -> State -> Others)"""
+    """Fill address fields sequentially (Country first, then others)"""
     from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field, find_and_select_dropdown
     from src.checkout_ai.utils.checkout_keywords import ADDRESS_LINE1_LABELS, CITY_LABELS, STATE_LABELS, POSTAL_CODE_LABELS, COUNTRY_LABELS
     page = get_page()
     
     # Use provided values or get from customer data
     customer_data = get_customer_data()
-    if customer_data:
-        addr = customer_data.get('shippingAddress', {})
-        address = address or addr.get('addressLine1')
-        city = city or addr.get('city')
-        state = state or addr.get('province')
-        zip_code = zip_code or addr.get('postalCode')
-        country = country or addr.get('country')
+    if not customer_data:
+        logger.error("❌ No customer data available!")
+        return {"success": False, "filled_count": 0, "error": "Customer data not provided"}
     
+    addr = customer_data.get('shippingAddress', {})
+    address = address or addr.get('addressLine1')
+    city = city or addr.get('city')
+    state = state or addr.get('province')
+    zip_code = zip_code or addr.get('postalCode')
+    country = country or addr.get('country')
+    
+    # CRITICAL: Fill sequentially - Country first, then others
     success_count = 0
-    total_steps = 0
+    total_count = 0
     
-    # 1. Select Country First (triggers state updates)
+    # 1. Country FIRST
     if country:
-        total_steps += 1
-        r = await find_and_select_dropdown(page, COUNTRY_LABELS, country)
-        if r.get('success'):
-            success_count += 1
-            # Small wait for page update handled in find_and_select_dropdown
+        total_count += 1
+        try:
+            result = await find_and_select_dropdown(page, COUNTRY_LABELS, country, max_retries=2)
+            if result.get('success'):
+                success_count += 1
+                await asyncio.sleep(0.5)
+        except:
+            pass
     
-    # 2. Select State (dependent on country)
+    # 2. State
     if state:
-        total_steps += 1
-        r = await find_and_select_dropdown(page, STATE_LABELS, state)
-        if r.get('success'):
+        total_count += 1
+        try:
+            result = await find_and_select_dropdown(page, STATE_LABELS, state, max_retries=2)
+            if result.get('success'):
+                success_count += 1
+        except:
+            pass
+        await asyncio.sleep(0.3)
+    
+    # 3. Address
+    if address:
+        total_count += 1
+        result = await fill_input_field(page, ADDRESS_LINE1_LABELS, address, max_retries=2)
+        if result.get('success'):
+            success_count += 1
+        await asyncio.sleep(0.3)
+    
+    # 4. City
+    if city:
+        total_count += 1
+        result = await fill_input_field(page, CITY_LABELS, city, max_retries=2)
+        if result.get('success'):
+            success_count += 1
+        await asyncio.sleep(0.3)
+    
+    # 5. ZIP
+    if zip_code:
+        total_count += 1
+        result = await fill_input_field(page, POSTAL_CODE_LABELS, zip_code, max_retries=2)
+        if result.get('success'):
             success_count += 1
     
-    # 3. Fill remaining fields in parallel
-    tasks = []
-    if address:
-        tasks.append(fill_input_field(page, ADDRESS_LINE1_LABELS, address, max_retries=3))
-    if zip_code:
-        tasks.append(fill_input_field(page, POSTAL_CODE_LABELS, zip_code, max_retries=3))
-    if city:
-        tasks.append(fill_input_field(page, CITY_LABELS, city, max_retries=2))
-    
-    if tasks:
-        results = await asyncio.gather(*tasks)
-        success_count += sum(1 for r in results if r.get('success', False))
-        total_steps += len(results)
-    
-    return {"success": success_count >= (total_steps - 1) if total_steps > 0 else False, "filled_count": success_count}
+    return {"success": success_count == total_count if total_count > 0 else False, "filled_count": success_count}
 
 async def click_checkout_button_tool() -> Dict[str, Any]:
     """Click checkout/proceed button"""

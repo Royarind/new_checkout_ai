@@ -34,6 +34,12 @@ TEST_CONFIG = {
             "province": "VA",
             "postalCode": "23294",
             "country": "United States"
+        },
+        "wallet": {
+            "preferredPaymentMethod": "credit_card",  # Options: credit_card, debit_card, paypal, amazon_pay, cash_on_delivery
+            "cardNumber": "4111111111111111",  # Test card - DO NOT use real cards
+            "cardExpiry": "12/25",
+            "cardCVV": "123"
         }
     },
     "tasks": [

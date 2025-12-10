@@ -2,6 +2,7 @@ from pydantic_ai import RunContext
 from src.checkout_ai.dom.service import UniversalDOMFinder
 import json
 import os
+import asyncio
 from dotenv import load_dotenv
 from pydantic import BaseModel
 try:
@@ -99,6 +100,7 @@ Treat every step as part of this generic flow (even if you only see one step at 
    - Select variants (size, color, style, etc.).
    - Set quantity.
    - Add to cart.
+   - IMPORTANT: After add_to_cart, use navigate_to_cart tool (handles modal checkout button, view cart, mini-cart icon, URL fallback).
 
 2) Cart
    - Verify items.
@@ -157,8 +159,10 @@ Never create fake personal or payment data; rely on given values or stored custo
 2. Use `validate_page` when needed to confirm where you are and what fields/buttons exist.
 3. Choose the highest-level tool that matches the step:
    - Variants: `select_variant`.
+   - **Quantity ONLY if > 1**: Skip "Set quantity: 1" steps (1 is default, no action needed).
    - Product to cart: `add_to_cart` or `click_add_to_cart`.
-   - Cart: `navigate_to_cart`, `click_checkout`, `click_guest_checkout`.
+   - **Navigate to cart: ALWAYS use `navigate_to_cart` tool** (don't use generic `click` - it handles modals, view cart, mini-cart, URL fallback automatically).
+   - Cart: `click_checkout`, `click_guest_checkout`.
    - Contact & address: `fill_email`, `fill_contact`, `fill_address`,
      or combined `fill_contact_and_address_and_continue`.
    - Shipping: `select_shipping_method`, `click_continue_to_payment`.
@@ -176,6 +180,12 @@ Never create fake personal or payment data; rely on given values or stored custo
 - Do not loop on the same failing action.
 - Do not change the user’s plan; request help via `call_planner` instead.
 - Do not hallucinate data; use only tool-provided / plan-provided values.
+- **NEVER click navigation links** (Home, Shop, About, Contact, etc.) - they take you away from checkout.
+- If `click_continue` fails, it will auto-recover using checkout URLs - don't manually navigate.
+- **🚨 CRITICAL: Call fill tools WITHOUT parameters - they auto-get customer data:**
+  - ❌ WRONG: `fill_contact(first_name="John")` or `fill_address(city="Sample City")`
+  - ✅ CORRECT: `fill_contact()` and `fill_address()` with NO arguments
+  - NEVER invent, hallucinate, or provide example values!
 </good_behavior>
 
 <outputs>
@@ -240,8 +250,17 @@ def get_or_create_browser_agent():
 # Register high-level tools - only if agent was successfully created
 if BA_agent is not None:
     @BA_agent.tool_plain
-    async def select_variant(variant_type: str, variant_value: str) -> str:
-        """Select product variant"""
+    async def select_variant(current_step: str) -> str:
+        """Parse and select variant from step like 'Select variant: color=Slate Grey'"""
+        import re
+        # Extract variant_type and variant_value from step description
+        match = re.search(r'(\w+)\s*=\s*([^,]+)', current_step)
+        if not match:
+            return "ERROR: Could not parse variant from step"
+        
+        variant_type = match.group(1).strip()
+        variant_value = match.group(2).strip()
+        
         result = await execute_tool("select_variant", variant_type=variant_type, variant_value=variant_value)
         return str(result)
 
@@ -253,7 +272,8 @@ if BA_agent is not None:
 
     @BA_agent.tool_plain
     async def click_add_to_cart(quantity: int = 1) -> str:
-        """Click the add to cart button (alias). Optional: Set quantity first."""
+        """Click the add to cart button (alias). Optional: Set quantity first if > 1."""
+        # Only set quantity if > 1 (1 is default, no need to change)
         if quantity > 1:
             await execute_tool("select_variant", variant_type="quantity", variant_value=str(quantity))
         result = await execute_tool("add_to_cart")
@@ -266,24 +286,16 @@ if BA_agent is not None:
         return str(result)
 
     @BA_agent.tool_plain
-    async def fill_email(email: str = None) -> str:
-        """Fill email field (uses stored customer data if email not provided)"""
-        # Handle case where LLM passes "None" as string
-        if email == "None":
-            email = None
-        result = await execute_tool("fill_email", email=email)
-        await asyncio.sleep(1) # Wait for UI update
+    async def fill_email() -> str:
+        """Fill email using stored customer data. NO parameters needed."""
+        result = await execute_tool("fill_email")
+        await asyncio.sleep(1)
         return str(result)
 
     @BA_agent.tool_plain
-    async def fill_contact(first_name: str = None, last_name: str = None, phone: str = None) -> str:
-        """Fill contact information (uses stored customer data if not provided)"""
-        # Handle "None" strings from LLM
-        if first_name == "None": first_name = None
-        if last_name == "None": last_name = None
-        if phone == "None": phone = None
-        
-        result = await execute_tool("fill_contact", first_name=first_name, last_name=last_name, phone=phone)
+    async def fill_contact() -> str:
+        """Fill contact information using stored customer data. Call with NO parameters."""
+        result = await execute_tool("fill_contact")
         await asyncio.sleep(1) # Wait for UI update
         # Auto‑click Continue if it appears after filling contact fields
         try:
@@ -317,17 +329,11 @@ if BA_agent is not None:
         return str(contact_res)
 
     @BA_agent.tool_plain
-    async def fill_address(address: str = None, city: str = None, state: str = None, zip_code: str = None) -> str:
-        """Fill shipping address (uses stored customer data if not provided)"""
-        # Handle "None" strings
-        if address == "None": address = None
-        if city == "None": city = None
-        if state == "None": state = None
-        if zip_code == "None": zip_code = None
-        
-        result = await execute_tool("fill_address", address=address, city=city, state=state, zip_code=zip_code)
+    async def fill_address() -> str:
+        """Fill address using stored customer data. NO parameters needed."""
+        result = await execute_tool("fill_address")
         await asyncio.sleep(1)
-        # Auto‑click Continue if it appears after filling address fields
+        # Auto-click Continue if it appears
         try:
             cont_res = await execute_tool("click_continue")
             if cont_res.get("success"):

@@ -111,9 +111,12 @@ class AgentOrchestrator:
             return {'success': False, 'error': msg, 'iterations': 0}
 
         # --- STEP 2: EXECUTION LOOP ---
+        from src.checkout_ai.agents.loop_detector import LoopDetector
+        
         current_step_idx = 0
         max_retries = 3
         history = []
+        loop_detector = LoopDetector(window_size=5, threshold=3)  # Detect after 3 failures
         
         # Gate Definitions
         GATES = {
@@ -178,6 +181,54 @@ class AgentOrchestrator:
                             logger.error(f"ORCHESTRATOR: Replanning failed: {replan_err}")
                             raise Exception(f"Replanning failed: {replan_err}")
                         
+                    # Track action for loop detection
+                    tool_used = "browser_agent"  # Generic, could extract actual tool from result
+                    action_success = "SUCCESS" in result_str.upper() or "✓" in result_str
+                    loop_detector.add_action(tool_used, action_success, step_text)
+                    
+                    # Check if agent is stuck in a loop
+                    if loop_detector.is_stuck():
+                        logger.warning("🔴 ORCHESTRATOR: Agent stuck in loop, triggering replanning...")
+                        
+                        # Build replan context with loop info
+                        loop_context = loop_detector.get_context()
+                        replan_context = f"""
+Original task: {task_description}
+
+{loop_context}
+
+Current step that keeps failing: {step_text}
+Recent history:
+{history[-3:] if len(history) > 3 else history}
+
+The agent is stuck. Please generate a NEW plan to recover and complete the task.
+Consider:
+- Maybe the element isn't available or incorrectly identified
+- Maybe we need to try a different approach
+- Maybe we need to skip this step and try alternative navigation
+"""
+                        
+                        try:
+                            logger.info("ORCHESTRATOR: Calling Planner to recover from loop...")
+                            replan_result = await planner.run(replan_context)
+                            new_plan_steps = replan_result.output.plan_steps
+                            
+                            logger.info(f"ORCHESTRATOR: Recovery plan generated with {len(new_plan_steps)} steps")
+                            
+                            # Replace remaining steps with recovery plan
+                            plan_steps = plan_steps[:current_step_idx] + new_plan_steps
+                            logger.info(f"ORCHESTRATOR: Updated plan, total steps now: {len(plan_steps)}")
+                            
+                            # Reset loop detector
+                            loop_detector.reset()
+                            
+                            # Try the new plan
+                            break  # Exit retry loop, continue to next step
+                            
+                        except Exception as replan_err:
+                            logger.error(f"ORCHESTRATOR: Recovery planning failed: {replan_err}")
+                            # Continue normal flow
+                    
                     elif "SIGNAL_CALL_CRITIQUE" in result_str:
                         logger.info("ORCHESTRATOR: Browser requested Assistance")
                         # Call Critique for Assistance
