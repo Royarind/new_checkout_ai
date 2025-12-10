@@ -28,19 +28,21 @@ async def navigate_to_cart(page: Page) -> Dict[str, Any]:
     
     logger.info("CART NAVIGATION: Starting cart navigation")
     
-    # Strategy 1: Check if cart modal/drawer appeared after adding item (with retry)
-    for attempt in range(3):
+    # Strategy 1: Check if cart modal/drawer appeared after adding item (with MORE retries)
+    for attempt in range(5):  # Increased from 3 to 5 attempts
         if attempt > 0:
-            logger.info(f"CART NAVIGATION: Retry attempt {attempt + 1}/3")
-            await asyncio.sleep(1)
+            logger.info(f"CART NAVIGATION: Retry attempt {attempt + 1}/5")
+            await asyncio.sleep(2)  # Longer wait between retries
         else:
             logger.info("CART NAVIGATION: Looking for cart modal/drawer")
+            await asyncio.sleep(1.5)  # Give modal time to appear and animate
         
         modal_result = await _check_cart_modal(page)
         if modal_result.get('found'):
             logger.info("CART NAVIGATION: Found cart modal/drawer")
+            logger.info(f"CART NAVIGATION: Modal selector: {modal_result.get('selector')}")
             
-            # Try to find "View Cart" button in modal
+            # Try to find "View Cart" or "Checkout" button in modal with DOM inspection
             view_cart_clicked = await _click_view_cart_in_modal(page)
             
             if view_cart_clicked:
@@ -49,7 +51,7 @@ async def navigate_to_cart(page: Page) -> Dict[str, Any]:
                 
                 current_url = page.url
                 logger.info("CART NAVIGATION: Successfully navigated to cart")
-                logger.info(f"CART NAVIGATION: Method - Cart modal to View Cart button")
+                logger.info(f"CART NAVIGATION: Method - Cart modal to View Cart/Checkout button")
                 logger.info(f"CART NAVIGATION: Cart URL - {current_url}")
                 
                 return {
@@ -58,62 +60,23 @@ async def navigate_to_cart(page: Page) -> Dict[str, Any]:
                     'method': 'modal_view_cart'
                 }
             else:
-                logger.warning(f"CART NAVIGATION: Attempt {attempt + 1}/3 - View Cart button not found or click failed")
+                logger.warning(f"CART NAVIGATION: Attempt {attempt + 1}/5 - Checkout/View Cart button not found or click failed")
         else:
-            logger.warning(f"CART NAVIGATION: Attempt {attempt + 1}/3 - Cart modal not found")
+            logger.warning(f"CART NAVIGATION: Attempt {attempt + 1}/5 - Cart modal not found")
     
-    # Strategy 1 failed - try direct URL navigation
-    logger.info("CART NAVIGATION: Strategy 1 failed, trying direct cart URL navigation")
-    
-    try:
-        current_url = page.url
-        base_url = '/'.join(current_url.split('/')[:3])
-        
-        cart_urls = [
-            f"{base_url}/cart",
-            f"{base_url}/cart/",
-            f"{base_url}/shopping-cart",
-            f"{base_url}/basket",
-            f"{base_url}/checkout/cart"
-        ]
-        
-        for cart_url in cart_urls:
-            try:
-                logger.info(f"CART NAVIGATION: Trying URL: {cart_url}")
-                await page.goto(cart_url, wait_until='domcontentloaded', timeout=10000)
-                await asyncio.sleep(1)
-                
-                is_cart = await page.evaluate("""
-                    () => {
-                        const text = document.body.textContent.toLowerCase();
-                        const url = window.location.href.toLowerCase();
-                        return url.includes('cart') || url.includes('basket') || 
-                               text.includes('shopping cart') || text.includes('your cart');
-                    }
-                """)
-                
-                if is_cart:
-                    logger.info("CART NAVIGATION: Successfully navigated to cart via URL")
-                    logger.info(f"CART NAVIGATION: Method - Direct URL navigation")
-                    logger.info(f"CART NAVIGATION: Cart URL - {page.url}")
-                    return {
-                        'success': True,
-                        'cart_url': page.url,
-                        'method': 'direct_url'
-                    }
-            except:
-                continue
-        
-        logger.error("CART NAVIGATION: All cart URL attempts failed")
-        
-    except Exception as e:
-        logger.error(f"CART NAVIGATION: Direct URL navigation error: {e}")
-    
+    # Strategy 1 (modal buttons) failed - report and fail
     logger.error("CART NAVIGATION: Failed to navigate to cart")
+    logger.error("CART NAVIGATION: No cart modal with clickable button found")
+    logger.error("CART NAVIGATION: This means either:")
+    logger.error("CART NAVIGATION:   1. Cart modal didn't appear after Add to Cart")
+    logger.error("CART NAVIGATION:   2. Cart modal appeared but has no 'Checkout'/'View Cart' button")
+    logger.error("CART NAVIGATION:   3. Modal was hidden by CSS/popup blocker")
+    
     return {
         'success': False,
         'cart_url': None,
-        'method': 'none'
+        'method': 'none',
+        'error': 'No cart modal button found. Cannot navigate to cart.'
     }
 
 
@@ -252,16 +215,19 @@ async def _click_view_cart_in_modal(page: Page) -> bool:
             'view bag',
             'go to cart',
             'go to bag',
+            'shopping cart',
             'cart',
             'bag',
-            'view'
+            'view',
+            'proceed'
         ]
         for kw in additional_keywords:
             if kw not in all_keywords:
                 all_keywords.append(kw)
         
-        logger.info(f"CART NAVIGATION: Trying {len(all_keywords)} keywords")
+        logger.info(f"CART NAVIGATION: Trying {len(all_keywords)} keywords via JavaScript")
         
+        # Try finding button via JavaScript keyword search first
         for keyword in all_keywords:
             result = await page.evaluate("""
                 (keyword) => {
@@ -475,6 +441,54 @@ async def _click_view_cart_in_modal(page: Page) -> bool:
                 except Exception as e:
                     logger.warning(f"CART NAVIGATION: Click failed - {e}")
                     continue
+        
+        logger.warning("CART NAVIGATION: JavaScript keyword search failed - trying UniversalDOMFinder")
+        
+        # FALLBACK: Use UniversalDOMFinder to find checkout/cart button
+        try:
+            from src.checkout_ai.dom.service import UniversalDOMFinder
+            
+            logger.info("CART NAVIGATION: Using UniversalDOMFinder to locate checkout button in modal")
+            
+            # Get modal element
+            modal_element = await page.query_selector('[data-cart-modal-found="true"]')
+            if not modal_element:
+                logger.warning("CART NAVIGATION: Modal marker not found for DOM search")
+            
+            # Try to find button with comprehensive keywords
+            checkout_keywords = [
+                'checkout', 'proceed to checkout', 'go to checkout',
+                'view cart', 'view bag', 'go to cart',
+                'shopping cart', 'proceed'
+            ]
+            
+            finder = UniversalDOMFinder(page)
+            
+            for keyword in checkout_keywords:
+                logger.info(f"CART NAVIGATION: DOM Finder searching for: '{keyword}'")
+                
+                # Search for clickable elements with this keyword
+                result = await finder.find_clickable_by_text(keyword, container_selector='[data-cart-modal-found="true"]')
+                
+                if result.get('success') and result.get('element'):
+                    logger.info(f"CART NAVIGATION: DOM Finder found button: {keyword}")
+                    
+                    try:
+                        # Click the element
+                        element = result['element']
+                        await element.click()
+                        await asyncio.sleep(1)
+                        
+                        logger.info("CART NAVIGATION: Successfully clicked via DOM Finder")
+                        return True
+                    except Exception as e:
+                        logger.warning(f"CART NAVIGATION: DOM Finder click failed - {e}")
+                        continue
+            
+            logger.warning("CART NAVIGATION: DOM Finder also failed to find button")
+            
+        except Exception as e:
+            logger.error(f"CART NAVIGATION: DOM Finder error - {e}")
         
         logger.warning("CART NAVIGATION: Strategy 1 failed - trying Strategy 2")
         

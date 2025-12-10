@@ -174,7 +174,7 @@ Note: Cookie banners, newsletters, chat widgets are handled automatically. Only 
    - Variants: `select_variant` (parses from step text automatically).
    - Quantity: Skip if quantity=1 (default), otherwise use `select_variant`.
    - Add to cart: `add_to_cart` or `click_add_to_cart`.
-   - Navigate to cart: `navigate_to_cart` (handles modals/URLs automatically).
+   - **Navigate to cart: `navigate_to_cart`** - Automatically clicks cart modal "Checkout"/"View Cart" button OR mini cart icon in header. No manual clicking needed.
    - Cart: `click_checkout`, `click_guest_checkout`.
    - Contact & address: `fill_email`, `fill_contact`, `fill_address`.
    - Shipping: `select_shipping_method`, `click_continue_to_payment`.
@@ -304,7 +304,7 @@ if BA_agent is not None:
 
     @BA_agent.tool_plain
     async def navigate_to_cart() -> str:
-        """Navigate to cart page"""
+        """Navigate to cart page. Automatically finds and clicks cart modal 'Checkout'/'View Cart' button or mini cart icon in header. No need to manually identify elements."""
         result = await execute_tool("navigate_to_cart")
         return str(result)
 

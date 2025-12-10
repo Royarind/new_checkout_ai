@@ -625,19 +625,24 @@ async def run_full_flow_core(json_data: dict) -> dict:
             // Inject comprehensive CSS to HIDE popups immediately
             const style = document.createElement('style');
             style.textContent = `
+                /* === IMPORTANT: EXCLUDE CHECKOUT-RELATED MODALS === */
+                /* These selectors use :not() to preserve checkout flow */
+                
                 /* === GEOLOCATION & LOCATION MODALS === */
-                [class*="geolocation"], [id*="geolocation"],
-                [class*="location"], [id*="location"],
-                [class*="country-selector"], [id*="country-selector"],
-                [class*="region-selector"], [id*="region-selector"],
-                [class*="modal"][class*="location"],
-                [class*="popup"][class*="location"],
-                [class*="overlay"][class*="location"],
+                [class*="geolocation"]:not([class*="cart"]):not([class*="checkout"]):not([class*="drawer"]), 
+                [id*="geolocation"]:not([id*="cart"]):not([id*="checkout"]),
+                [class*="location"]:not([class*="cart"]):not([class*="checkout"]):not([class*="product"]), 
+                [id*="location"]:not([id*="cart"]):not([id*="checkout"]),
+                [class*="country-selector"]:not([class*="checkout"]), 
+                [id*="country-selector"]:not([id*="checkout"]),
+                [class*="region-selector"]:not([class*="checkout"]), 
+                [id*="region-selector"]:not([id*="checkout"]),
                 .geolocation-modal, #geolocation-modal,
                 .location-popup, #location-popup,
                 .country-modal, #country-modal,
                 
                 /* === PROMOTIONAL & NEWSLETTER POPUPS === */
+                /* These never have cart/checkout in class, safe to hide */
                 [class*="promo"][class*="modal"], [id*="promo"][id*="modal"],
                 [class*="newsletter"], [id*="newsletter"],
                 [class*="signup-modal"], [id*="signup"],
@@ -652,10 +657,10 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 /* === EMAIL CAPTURE & LEAD GEN === */
                 [class*="email-capture"], [id*="email-capture"],
                 [class*="lead-gen"], [id*="lead"],
-                [class*="popup"][class*="email"],
+                [class*="popup"][class*="email"]:not([class*="checkout"]),
                 .email-popup, .email-overlay,
                 
-                /* === CHAT WIDGETS (hide but don't remove for now) === */
+                /* === CHAT WIDGETS === */
                 #intercom-container, .intercom-launcher,
                 #drift-widget, .drift-frame-controller,
                 #hubspot-messages-iframe-container,
@@ -663,15 +668,15 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 .tawk-min-container,
                 .livechat-container,
                 [class*="chat-widget"], [id*="chat-widget"],
-                [class*="messenger"], [id*="messenger"],
-                
-                /* === COOKIE CONSENT (let JavaScript handle acceptance) === */
-                /* Don't hide cookie banners - we need to click Accept */
+                [class*="messenger"]:not([class*="checkout"]), 
+                [id*="messenger"]:not([id*="checkout"]),
                 
                 /* === GENERIC MODAL/POPUP PATTERNS === */
-                .modal-backdrop[style*="display: block"],
-                .overlay[style*="display: block"],
-                [aria-modal="true"][role="dialog"]:not([class*="cart"]):not([id*="cart"]),
+                /* CRITICAL: Exclude cart, checkout, drawer (user-triggered), sidebar, shipping, payment */
+                [aria-modal="true"][role="dialog"]:not([class*="cart"]):not([id*="cart"]):not([class*="checkout"]):not([id*="checkout"]):not([class*="shipping"]):not([class*="payment"]),
+                
+                /* NOTE: Drawers/slides/panels are handled by mutation observer with click tracking */
+                /* Auto-appearing promotional drawers will be hidden, click-triggered ones preserved */
                 
                 /* === EXIT INTENT === */
                 [class*="exit-intent"], [id*="exit-intent"],
@@ -687,10 +692,11 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 
                 /* === SOCIAL PROOF === */
                 [class*="social-proof"], [id*="social-proof"],
-                [class*="recently-viewed"], [id*="recently-viewed"],
+                [class*="recently-viewed"]:not([class*="product"]), 
+                [id*="recently-viewed"]:not([id*="product"]),
                 
                 /* === STICKY BANNERS (top promotional bars) === */
-                [class*="announcement-bar"][style*="position: fixed"],
+                [class*="announcement-bar"][style*="position: fixed"]:not([class*="cart"]),
                 [class*="promo-bar"][style*="position: fixed"],
                 [class*="top-banner"][style*="position: sticky"]
                 {
@@ -721,26 +727,81 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 });
             }
             
+            // Track user clicks to distinguish user-triggered vs auto-popup modals
+            let lastClickTime = 0;
+            document.addEventListener('click', () => {
+                lastClickTime = Date.now();
+            }, true);
+            
             // Mutation observer to catch dynamically added popups
             const observer = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
                     mutation.addedNodes.forEach((node) => {
                         if (node.nodeType === 1) { // Element node
-                            // Check if it's a modal/popup
-                            const className = node.className || '';
-                            const id = node.id || '';
-                            const isPopup = 
-                                className.includes('modal') ||
+                            const className = (node.className || '').toLowerCase();
+                            const id = (node.id || '').toLowerCase();
+                            const ariaLabel = (node.getAttribute('aria-label') || '').toLowerCase();
+                            
+                            // Check if modal appeared shortly after user click (within 2 seconds)
+                            const timeSinceClick = Date.now() - lastClickTime;
+                            const isUserTriggered = timeSinceClick < 2000;
+                            
+                            // ALWAYS PRESERVE core checkout elements (regardless of click)
+                            const isCoreCheckout = 
+                                className.includes('cart') ||
+                                className.includes('checkout') ||
+                                className.includes('minicart') ||
+                                className.includes('mini-cart') ||
+                                className.includes('bag') ||
+                                className.includes('basket') ||
+                                className.includes('shipping') ||
+                                className.includes('payment') ||
+                                id.includes('cart') ||
+                                id.includes('checkout') ||
+                                id.includes('minicart') ||
+                                id.includes('bag') ||
+                                ariaLabel.includes('cart') ||
+                                ariaLabel.includes('checkout') ||
+                                ariaLabel.includes('bag');
+                            
+                            // PRESERVE side modals ONLY if user-triggered
+                            const isSideModal = 
+                                className.includes('drawer') ||
+                                className.includes('sidebar') ||
+                                className.includes('side-') ||
+                                className.includes('slide') ||
+                                className.includes('panel') ||
+                                className.includes('offcanvas') ||
+                                id.includes('drawer') ||
+                                id.includes('sidebar') ||
+                                id.includes('side-') ||
+                                ariaLabel.includes('drawer') ||
+                                ariaLabel.includes('menu');
+                            
+                            const isUserTriggeredSideModal = isSideModal && isUserTriggered;
+                            
+                            // HIDE promotional popups
+                            const isPromotionalPopup = 
+                                (className.includes('modal') ||
                                 className.includes('popup') ||
                                 className.includes('overlay') ||
                                 className.includes('promo') ||
                                 className.includes('newsletter') ||
                                 id.includes('modal') ||
-                                id.includes('popup');
+                                id.includes('popup')) &&
+                                !isCoreCheckout &&
+                                !isUserTriggeredSideModal;
                             
-                            if (isPopup && !className.includes('cart')) {
+                            // HIDE auto-appearing side modals (not user-triggered)
+                            const isAutoSideModal = isSideModal && !isUserTriggered && !isCoreCheckout;
+                            
+                            // Hide promotional popups or auto-appearing side modals
+                            if (isPromotionalPopup || isAutoSideModal) {
                                 node.style.display = 'none';
                                 node.style.visibility = 'hidden';
+                                console.log('[POPUP BLOCKER] Hid auto-popup:', className || id, '| Time since click:', timeSinceClick + 'ms');
+                            } else if (isCoreCheckout || isUserTriggeredSideModal) {
+                                console. ('[POPUP BLOCKER] Preserved user-triggered modal:', className || id, '| Time since click:', timeSinceClick + 'ms');
                             }
                         }
                     });
