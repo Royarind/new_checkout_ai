@@ -56,6 +56,14 @@ from src.checkout_ai.agents.browser_agent import BA_agent, current_step_class
 from src.checkout_ai.agents.critique_agent import CA_agent, CritiqueInput, CritiqueOutput
 from src.checkout_ai.agents.unified_tools import set_page
 
+# Screenshot Service for live browser
+try:
+    from backend.services.screenshot_service import screenshot_service
+    SCREENSHOT_SERVICE_AVAILABLE = True
+except ImportError:
+    SCREENSHOT_SERVICE_AVAILABLE = False
+    logger.warning("Screenshot service not available - live browser disabled")
+
 # Stealth mode
 try:
     from playwright_stealth import stealth_async
@@ -102,22 +110,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-SCREENSHOT_PATH = '/tmp/chkout_screenshot.png'
-
-
-async def capture_screenshots(page):
-    """Continuously capture screenshots every 5 seconds"""
-    try:
-        while True:
-            try:
-                await page.screenshot(path=SCREENSHOT_PATH)
-            except Exception as e:
-                logger.debug(f"Screenshot error: {e}")
-            await asyncio.sleep(5)
-    except asyncio.CancelledError:
-        if os.path.exists(SCREENSHOT_PATH):
-            os.remove(SCREENSHOT_PATH)
-        logger.info("Screenshot capture stopped")
+# Screenshot capture is now handled by screenshot_service
 
 
 async def validate_cart_items(page, tasks):
@@ -590,7 +583,9 @@ async def run_full_flow_core(json_data: dict) -> dict:
                 '--disable-features=TranslateUI',
                 '--disable-features=Translate',
                 '--disable-component-extensions-with-background-pages',
-                '--start-maximized'
+                '--start-maximized',
+                # CDP endpoint for live browser
+                '--remote-debugging-port=9222'
             ],
             viewport=None,
             permissions=[],  # Grant no permissions
@@ -825,9 +820,15 @@ async def run_full_flow_core(json_data: dict) -> dict:
         if STEALTH_AVAILABLE:
             await stealth_async(page)
         
-        # Start screenshot capture
-        screenshot_task = asyncio.create_task(capture_screenshots(page))
-        logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Screenshot capture started")
+        # Start screenshot capture service (2-second intervals)
+
+        if SCREENSHOT_SERVICE_AVAILABLE:
+            screenshot_task = asyncio.create_task(screenshot_service.start_capture(page))
+            screenshot_service.lock_browser()
+            logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Screenshot service started (2s interval)")
+        else:
+            logger.warning("Screenshot service not available")
+
 
         # Agentic flow: process each task using Planner -> Browser -> Critique loop
         for i, task in enumerate(tasks):
@@ -975,14 +976,14 @@ async def run_full_flow_core(json_data: dict) -> dict:
         }
     
     finally:
-        # Stop screenshot capture
-        try:
-            screenshot_task.cancel()
-        except:
-            pass
+        # Stop screenshot capture and cleanup
+        if SCREENSHOT_SERVICE_AVAILABLE:
+            screenshot_service.stop_capture()
+            screenshot_service.unlock_browser()
+            logger.info(f"ORCHESTRATOR: Screenshot service stopped and cleaned up")
         
-        # Keep browser open for inspection
-        logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Keeping browser open for 3600s for inspection...")
+        logger.info(f"ORCHESTRATOR: Automation complete! Browser will stay open for 1 hour for inspection...")
+        
         await asyncio.sleep(3600)
 
         # Cleanup
