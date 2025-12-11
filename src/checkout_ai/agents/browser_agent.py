@@ -307,6 +307,33 @@ if BA_agent is not None:
         """Navigate to cart page. Automatically finds and clicks cart modal 'Checkout'/'View Cart' button or mini cart icon in header. No need to manually identify elements."""
         result = await execute_tool("navigate_to_cart")
         return str(result)
+    
+    @BA_agent.tool_plain
+    async def smart_login(email: str = None, phone: str = None, password: str = "") -> str:
+        """
+        Smart login for Indian e-commerce (Myntra, Flipkart, Ajio). Automatically fetches email and phone
+        from customer data. Detects mobile vs email field, handles passwords, checks T&C boxes, and clicks continue.
+        Much faster than manual field filling.
+        
+        Args:
+            email: Optional email (auto-fetched from customer data if not provided)
+            phone: Optional 10-digit mobile (auto-fetched from customer data if not provided)
+            password: Optional password (if omitted assumes OTP flow)
+        """
+        result = await execute_tool("smart_login", email=email, phone=phone, password=password)
+        return str(result)
+    
+    @BA_agent.tool_plain
+    async def select_checkbox(label_text: str, check: bool = True) -> str:
+        """
+        Find and check/uncheck a checkbox by its label text.
+        
+        Args:
+            label_text: Text near checkbox (e.g., "I agree to terms")
+            check: True to check, False to uncheck
+        """
+        result = await execute_tool("select_checkbox", label_text=label_text, check=check)
+        return str(result)
 
     @BA_agent.tool_plain
     async def fill_email() -> str:

@@ -20,7 +20,7 @@ class IndiaWorkflowPlugin:
     
     def augment_plan(self, plan_steps: List[str], country_code: str) -> List[str]:
         """
-        Add India-specific steps to the plan
+        Add India-specific steps to the plan and replace US-style steps
         
         Args:
             plan_steps: Original plan steps
@@ -36,21 +36,43 @@ class IndiaWorkflowPlugin:
         logger.info("🇮🇳 Applying India workflow enhancements")
         
         enhanced_plan = []
+        otp_added = False
         
         for i, step in enumerate(plan_steps):
-            enhanced_plan.append(step)
             step_lower = step.lower()
             
-            # After LOGIN/REGISTER, add OTP verification
-            if any(keyword in step_lower for keyword in self.login_steps):
-                if not self._has_otp_step(plan_steps, i):
-                    enhanced_plan.append("Verify phone number via OTP")
-                    logger.info("   ➕ Added: Verify phone number via OTP (after login)")
+            # **REPLACE** email/contact filling with smart_login for Indian sites
+            if ('fill email' in step_lower or 
+                'enter email' in step_lower or
+                'fill contact' in step_lower or
+                any(keyword in step_lower for keyword in self.login_steps)):
+                
+                if not any('smart login' in s.lower() for s in enhanced_plan):
+                    enhanced_plan.append("Use smart_login to enter mobile/email and handle T&C")
+                    logger.info(f"   🔄 Replaced '{step}' with 'smart_login'")
+                    
+                    # Add OTP step after login
+                    if not otp_added:
+                        enhanced_plan.append("Verify phone number via OTP")
+                        logger.info("   ➕ Added: Verify phone number via OTP")
+                        otp_added = True
+                else:
+                    # Skip duplicate email/contact steps
+                    logger.info(f"   ⏭️  Skipped duplicate: '{step}'")
+                continue
+            
+            # **REPLACE** address filling with STRICT verification tool
+            if ('shipping address' in step_lower or 'fill address' in step_lower) and 'billing' not in step_lower:
+                 enhanced_plan.append("Use 'verify_address' tool to validate selected address matches config. If it clicks 'Add New', fill the form.")
+                 logger.info(f"   🔄 Replaced '{step}' with 'Address Verification Tool'")
+                 continue
+            
+            # Keep other steps as-is
+            enhanced_plan.append(step)
             
             # Before payment, suggest COD
             if any(keyword in step_lower for keyword in self.payment_steps):
                 if not self._has_cod_step(plan_steps, i):
-                    # Insert before current payment step
                     enhanced_plan.insert(-1, "Select Cash on Delivery (COD) payment method")
                     logger.info("   ➕ Added: Select COD payment")
         

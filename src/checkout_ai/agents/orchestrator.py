@@ -66,27 +66,47 @@ class AgentOrchestrator:
         if not planner or not browser or not critique:
             return {'success': False, 'error': "Failed to initialize agents.", 'iterations': 0, 'history': []}
         
+        # Use provided customer_data or fall back to instance variable
+        if customer_data is None:
+            customer_data = self.customer_data
+        
         # Detect country from URL (if available)
         url = None
         if customer_data and 'tasks' in customer_data:
             tasks = customer_data.get('tasks', [])
             if tasks and len(tasks) > 0:
                 url = tasks[0].get('url')
+        elif customer_data and '_base_url' in customer_data:
+             url = customer_data.get('_base_url')
+             logger.info(f"📍 Using base URL from customer data: {url}")
         
+        # If still no URL, try current page URL
+        if not url and self.page:
+             try:
+                 current_url = self.page.url
+                 if current_url and current_url != 'about:blank':
+                     url = current_url
+                     logger.info(f"📍 Using current page URL: {url}")
+             except Exception:
+                 pass
+
         if url:
             self.detected_country = detect_country_from_url(url)
+            logger.info(f"📍 Country detection for URL: {url}")
+            logger.info(f"📍 Detected country code: {self.detected_country}")
+            
             if self.detected_country:
                 self.country_config = get_country_config(self.detected_country)
                 logger.info(f"🌍 Detected country: {self.detected_country} ({self.country_config['name']})")
                 logger.info(f"   Postal code format: {self.country_config['postal_code_label']}")
                 logger.info(f"   Currency: {self.country_config['currency_symbol']} ({self.country_config['currency_code']})")
             else:
-                logger.info(f"⚠️  Could not detect country from URL: {url}, defaulting to US")
+                logger.warning(f"⚠️  Could not detect country from URL: {url}, defaulting to US")
                 self.detected_country = 'US'
                 self.country_config = get_country_config('US')
         else:
             # No URL, use default
-            logger.info("⚠️  No URL provided, using default country: US")
+            logger.warning("⚠️  No URL provided, using default country: US")
             self.detected_country = 'US'
             self.country_config = get_country_config('US')
         
@@ -127,6 +147,7 @@ class AgentOrchestrator:
                 india_plugin = IndiaWorkflowPlugin()
                 plan_steps = india_plugin.augment_plan(plan_steps, 'IN')
                 logger.info(f"🇮🇳 India plugin applied. Final plan has {len(plan_steps)} steps")
+                logger.info(f"📋 FINAL EXECUTABLE PLAN: {plan_steps}")
             except Exception as e:
                 logger.warning(f"India plugin failed: {e}, continuing with standard plan")
 

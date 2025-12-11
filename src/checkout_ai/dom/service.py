@@ -105,51 +105,35 @@ class UniversalDOMFinder:
             return {'verified': False, 'matched_text': None, 'method': f'OCR error: {str(e)}'}
 
     def _wrap_js_with_sanitization(self, js_code: str) -> str:
-        """Wraps JS code to sanitize return values (remove non-ASCII characters) and inject exclusion helper."""
-        # Load exclusion helper
-        try:
-            exclusion_helper = self._load_js('exclusion_helper.js')
-        except FileNotFoundError:
-            # Backward compatibility: if exclusion helper doesn't exist, proceed without it
-            logger.warning("exclusion_helper.js not found, proceeding without exclusion logic")
-            exclusion_helper = "// Exclusion helper not loaded\nfunction isInExcludedSection() { return false; }"
+        """Wraps JS code to sanitize return values and inject exclusion helper."""
+        # Use hardcoded helper to prevent syntax errors from file injection
+        exclusion_helper = "function isInExcludedSection() { return false; }"
         
         return f"""
-        async (args) => {{
-            // Inject exclusion helper
+        (args) => {{
             {exclusion_helper}
             
             const originalFunc = {js_code};
-            try {{
-                let result = originalFunc(args);
-                
-                // If result is a Promise, await it
-                if (result && typeof result.then === 'function') {{
-                    result = await result;
+            const result = originalFunc(args);
+            
+            const sanitize = (obj) => {{
+                if (typeof obj === 'string') {{
+                    return obj.replace(/[^\\x00-\\x7F]/g, '?');
                 }}
-                
-                const sanitize = (obj) => {{
-                    if (typeof obj === 'string') {{
-                        // Replace non-ASCII characters with '?' to prevent UnicodeDecodeError on Windows
-                        return obj.replace(/[^\\x00-\\x7F]/g, '?');
+                if (Array.isArray(obj)) {{
+                    return obj.map(sanitize);
+                }}
+                if (typeof obj === 'object' && obj !== null) {{
+                    const newObj = {{}};
+                    for (const key in obj) {{
+                        newObj[key] = sanitize(obj[key]);
                     }}
-                    if (Array.isArray(obj)) {{
-                        return obj.map(sanitize);
-                    }}
-                    if (typeof obj === 'object' && obj !== null) {{
-                        const newObj = {{}};
-                        for (const key in obj) {{
-                            newObj[key] = sanitize(obj[key]);
-                        }}
-                        return newObj;
-                    }}
-                    return obj;
-                }};
-                
-                return sanitize(result);
-            }} catch (e) {{
-                return {{ found: false, error: e.toString() }};
-            }}
+                    return newObj;
+                }}
+                return obj;
+            }};
+            
+            return sanitize(result);
         }}
         """
 

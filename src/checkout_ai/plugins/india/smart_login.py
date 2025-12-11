@@ -103,16 +103,28 @@ class SmartLoginHandler:
                     const label = input.getAttribute('aria-label')?.toLowerCase() || '';
                     const name = (input.name || '').toLowerCase();
                     const id = (input.id || '').toLowerCase();
+                    const className = (input.className || '').toLowerCase();
+                    
+                    // STRICT FILTER: Exclude search bars
+                    if (placeholder.includes('search') || 
+                        className.includes('search') || 
+                        id.includes('search') || 
+                        name.includes('search') ||
+                        input.getAttribute('type') === 'search') {
+                        continue;
+                    }
                     
                     const allText = `${placeholder} ${label} ${name} ${id}`;
                     
-                    // Check if it's a mobile field
+                    // Check if it's a mobile field (Enhanced for Myntra)
                     const isMobile = allText.includes('mobile') || 
                                     allText.includes('phone') || 
                                     allText.includes('number') ||
                                     input.type === 'tel' ||
-                                    allText.match(/\\d{10}/) || // "Enter 10 digit mobile"
-                                    placeholder.match(/^\\+?\\d/); // Starts with + or digit
+                                    input.maxLength === 10 || // Common in India
+                                    (placeholder.includes('10') && placeholder.includes('digit')) ||
+                                    allText.match(/\\d{10}/) || 
+                                    placeholder.match(/^\\+?\\d/);
                     
                     // Check if it's an email field
                     const isEmail = allText.includes('email') ||
@@ -244,16 +256,25 @@ class SmartLoginHandler:
                                          allText.includes('must');
                         
                         if (isTerms || isRequired) {
-                            // Check if visible
+                            // Check visibility
                             const rect = checkbox.getBoundingClientRect();
                             const style = window.getComputedStyle(checkbox);
                             const isVisible = rect.width > 0 && rect.height > 0 &&
-                                            style.display !== 'none';
+                                            style.display !== 'none' && style.visibility !== 'hidden';
                             
-                            if (isVisible && !checkbox.disabled) {
-                                checkbox.click();
-                                checkedCount++;
-                                console.log('Checked T&C checkbox:', label.substring(0, 50));
+                            if (!checkbox.disabled) {
+                                if (isVisible) {
+                                    checkbox.click();
+                                    checkedCount++;
+                                    console.log('Checked T&C checkbox:', label.substring(0, 50));
+                                } else {
+                                    // Hidden checkbox (common in custom UI), click parent
+                                    if (checkbox.parentElement) {
+                                        checkbox.parentElement.click();
+                                        checkedCount++;
+                                        console.log('Clicked parent of hidden T&C checkbox');
+                                    }
+                                }
                             }
                         }
                     }
@@ -287,7 +308,9 @@ class SmartLoginHandler:
                     
                     const selectors = [
                         'button', 'input[type="submit"]', 'input[type="button"]',
-                        'a[role="button"]', '[role="button"]'
+                        'a[role="button"]', '[role="button"]',
+                        '.submit', '.continue', '.login-button',  // Common class names
+                        'div[class*="submit"]', 'div[class*="button"]', 'div[class*="continue"]'
                     ];
                     
                     for (const selector of selectors) {

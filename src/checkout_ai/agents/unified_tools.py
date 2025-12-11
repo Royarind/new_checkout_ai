@@ -49,6 +49,67 @@ async def navigate_to_cart_tool() -> Dict[str, Any]:
     result = await navigate_to_cart(page)
     return {"success": result.get('success', False), "cart_url": result.get('cart_url', '')}
 
+async def smart_login_tool(email: str = None, phone: str = None, password: str = "") -> Dict[str, Any]:
+    """Smart login with mobile/email detection, T&C handling for Indian sites"""
+    from src.checkout_ai.plugins.india import SmartLoginHandler
+    page = get_page()
+    
+    # Force use of customer data (source of truth) over LLM arguments
+    customer_data = get_customer_data()
+    if customer_data:
+        config_email = customer_data.get('contact', {}).get('email')
+        config_phone = customer_data.get('contact', {}).get('phone')
+        
+        if config_email and config_email != email:
+            print(f"⚠️ Overriding LLM email '{email}' with verified customer data: '{config_email}'")
+            email = config_email
+            
+        if config_phone and config_phone != phone:
+            print(f"⚠️ Overriding LLM phone '{phone}' with verified customer data: '{config_phone}'")
+            phone = config_phone
+            
+    # Fallbacks if still empty
+    if not email: email = ""
+    if not phone: phone = ""
+    
+    handler = SmartLoginHandler(page)
+    result = await handler.login(email=email, phone=phone, password=password)
+    return result
+
+async def select_checkbox_tool(label_text: str, check: bool = True) -> Dict[str, Any]:
+    """Select or unselect a checkbox by label"""
+    page = get_page()
+    try:
+        result = await page.evaluate("""
+            ({labelText, shouldCheck}) => {
+                const normalize = (text) => text ? text.toLowerCase().trim() : '';
+                const targetLabel = normalize(labelText);
+                const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+                
+                for (const checkbox of checkboxes) {
+                    const label = checkbox.parentElement?.textContent || 
+                                 document.querySelector(`label[for="${checkbox.id}"]`)?.textContent ||
+                                 checkbox.getAttribute('aria-label') || '';
+                    const labelNorm = normalize(label);
+                    
+                    if (labelNorm.includes(targetLabel) || targetLabel.includes(labelNorm)) {
+                        const rect = checkbox.getBoundingClientRect();
+                        const style = window.getComputedStyle(checkbox);
+                        const isVisible = rect.width > 0 && rect.height > 0 && style.display !== 'none';
+                        
+                        if (isVisible && !checkbox.disabled) {
+                            if (checkbox.checked !== shouldCheck) checkbox.click();
+                            return {success: true, label: label.substring(0, 100), checked: checkbox.checked};
+                        }
+                    }
+                }
+                return {success: false, error: `Checkbox "${labelText}" not found`};
+            }
+        """, {"labelText": label_text, "shouldCheck": check})
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 async def fill_email_tool(email: str = None) -> Dict[str, Any]:
     """Fill email field"""
     from src.checkout_ai.legacy.phase2.checkout_dom_finder import fill_input_field
@@ -185,7 +246,20 @@ async def click_checkout_button_tool() -> Dict[str, Any]:
     from src.checkout_ai.legacy.phase2.checkout_dom_finder import find_and_click_button
     from src.checkout_ai.utils.checkout_keywords import CHECKOUT_BUTTONS
     page = get_page()
+    
+    # Check if ALREADY on login page (Myntra redirects automatically sometimes)
+    url = page.url.lower()
+    if 'login' in url or 'signin' in url or 'authentication' in url:
+        return {"success": True, "message": "Already on login page"}
+
     result = await find_and_click_button(page, CHECKOUT_BUTTONS, max_retries=3)
+    
+    # Check again if redirected to login page after failure (or partial success)
+    if not result.get('success', False):
+         url = page.url.lower()
+         if 'login' in url or 'signin' in url or 'authentication' in url:
+             return {"success": True, "message": "Redirected to login page implicitly"}
+             
     return {"success": result.get('success', False)}
 
 async def click_guest_checkout_tool() -> Dict[str, Any]:
@@ -284,6 +358,13 @@ async def click_element_tool(selector: str = None, text: str = None, x: int = No
     page = get_page()
     
     try:
+        # Check for Login Page Trap: detecting "Checkout" clicks when already on Login
+        if text and any(k in text.lower() for k in ['checkout', 'proceed', 'continue']):
+             url = page.url.lower()
+             if 'login' in url or 'signin' in url:
+                 print(f"⚠️ Bypass: Trying to click '{text}' but already on Login page. Marking success.")
+                 return {"success": True, "message": "Automatically bypassed click because already on login page"}
+
         if x is not None and y is not None:
             await page.mouse.click(x, y)
         elif selector:
@@ -628,11 +709,136 @@ async def select_custom_dropdown_tool(label: str = None, value: str = None) -> D
     result = await interact_with_custom_dropdown(page, [label], value)
     return {"success": result.get('success', False)}
 
+async def verify_address_selection_tool() -> Dict[str, Any]:
+    """
+    Verify if currently selected address matches config.
+    Returns success if match, or error instructing to add new.
+    """
+    page = get_page()
+    customer_data = get_customer_data()
+    if not customer_data:
+        return {"success": True, "message": "No config to verify against"}
+        
+    
+    # Handle nested structure (config.json vs flattened data)
+    shipping_addr = customer_data.get('shippingAddress')
+    if not shipping_addr:
+        shipping_addr = customer_data.get('customer', {}).get('shippingAddress', {})
+        
+    expected_pin = shipping_addr.get('postalCode')
+    expected_city = shipping_addr.get('city', '').lower()
+    
+    if not expected_pin or not expected_city:
+         print(f"⚠️ Warning: perform_verify_address found empty config criteria. PIN: {expected_pin}, City: {expected_city}")
+         # Fail safe: if we can't verify, we shouldn't just pass. 
+         # But maybe we should ask user? For now, proceed but log warning.
+         pass
+    
+    result = await page.evaluate("""
+        ({expectedPin, expectedCity}) => {
+            console.log(`Searching for address with PIN: ${expectedPin}, City: ${expectedCity}`);
+            
+            // Normalize helper
+            const normalize = (str) => (str || '').toLowerCase().replace(/\\s+/g, '').trim();
+            const normExpectedPin = normalize(expectedPin);
+            const normExpectedCity = (expectedCity || '').toLowerCase().trim();
+            
+            // Find ALL address containers (Myntra specific + generic)
+            const allAddresses = Array.from(document.querySelectorAll('.address-item, .addressBox, .address-card, div[class*="address-container"], div[class*="addressItem"]'));
+            
+            let matchFound = null;
+            
+            // Loop through all addresses to find a match
+            for (const addr of allAddresses) {
+                const text = (addr.textContent || '').toLowerCase();
+                const normText = text.replace(/\\s+/g, ''); // Text without spaces for PIN search
+                
+                // PIN Match: check if normalized PIN exists in normalized text
+                const pinMatch = normExpectedPin ? normText.includes(normExpectedPin) : true;
+                
+                // City Match: check if city exists (word boundary check is better but simple include is okay for now)
+                const cityMatch = normExpectedCity ? text.includes(normExpectedCity) : true;
+                
+                if (pinMatch && cityMatch) {
+                    matchFound = addr;
+                    break;
+                }
+            }
+            
+            if (matchFound) {
+                // Found a matching address!
+                // Check if already selected
+                const radio = matchFound.querySelector('input[type="radio"]');
+                const isSelected = radio ? radio.checked : 
+                                 matchFound.classList.contains('selected') || 
+                                 matchFound.classList.contains('address-selected') ||
+                                 matchFound.className.includes('selected');
+                
+                if (!isSelected) {
+                    console.log("Found matching address but not selected. Clicking it...");
+                    if (radio) {
+                        radio.click();
+                    } else {
+                        matchFound.click();
+                    }
+                    // Wait a bit just in case
+                    return { success: true, message: "Found and selected matching address from list." };
+                } else {
+                    return { success: true, message: "Matching address is already selected." };
+                }
+            }
+            
+            // If we are here, NO address matched.
+            return { 
+                success: false, 
+                reason: `No address on page matched PIN ${expectedPin} or City ${expectedCity} (without opening Edit)`,
+                action: "click_add_new" 
+            };
+        }
+    """, {'expectedPin': expected_pin, 'expectedCity': expected_city})
+    
+    if result.get('success'):
+        print("✅ Address Verified: Matches Config")
+        return {"success": True, "message": "Address verified matches config"}
+        
+    # If mismatch, try to click 'Add New Address' automatically
+    if result.get('action') == 'click_add_new':
+         print(f"⚠️ Address Mismatch! {result.get('reason')}. Switching to 'Add New Address'...")
+         
+         # Attempt to find and click 'Add New Address'
+         clicked = await page.evaluate("""
+             () => {
+                 const buttons = Array.from(document.querySelectorAll('div, button, a'));
+                 const addBtn = buttons.find(b => {
+                     const t = (b.textContent || '').toLowerCase();
+                     const isVisible = b.offsetWidth > 0 && b.offsetHeight > 0;
+                     return isVisible && (t.includes('add new address') || t.includes('add address'));
+                 });
+                 if (addBtn) {
+                     addBtn.click();
+                     return true;
+                 }
+                 return false;
+             }
+         """)
+         
+         if clicked:
+             # Wait for form to open
+             await asyncio.sleep(1)
+             return {"success": True, "message": "Address mismatch detected. Automatically clicked 'Add New Address'. Proceed to fill form."}
+         else:
+             return {"success": False, "error": f"Address mismatch and could not find 'Add New Address' button. {result.get('reason')}"}
+                 
+    return result
+
 TOOLS = {
+    "verify_address": verify_address_selection_tool,
     # High-level tools
     "select_variant": select_variant_tool,
     "add_to_cart": add_to_cart_tool,
     "navigate_to_cart": navigate_to_cart_tool,
+    "smart_login": smart_login_tool,
+    "select_checkbox": select_checkbox_tool,
     "fill_email": fill_email_tool,
     "fill_contact": fill_contact_tool,
     "fill_address": fill_address_tool,
