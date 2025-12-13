@@ -109,6 +109,16 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+# Debug File Logging
+try:
+    fh = logging.FileHandler('orchestrator_debug.log', encoding='utf-8')
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.info("DEBUG LOGGING STARTED")
+except Exception as e:
+    print(f"Failed to setup file logging: {e}")
 
 # Screenshot capture is now handled by screenshot_service
 
@@ -554,42 +564,29 @@ async def run_full_flow_core(json_data: dict) -> dict:
         profile_path = tempfile.mkdtemp(prefix='checkout_ai_chrome_')
         logger.info(f"ORCHESTRATOR: Launching Chrome with temporary profile at {profile_path}")
         
+        
+        # Explicitly point to the installed Chrome binary
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        if not os.path.exists(chrome_path):
+             # Fallback for some systems, though we verified it exists
+             chrome_path = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+
         context = await playwright.chromium.launch_persistent_context(
             user_data_dir=profile_path,
-            # channel='chrome',  # Removed to use bundled Chromium
-            headless=False,  # VISIBLE BROWSER WINDOW - See automation in real-time!
-            slow_mo=100,  # Slow down by 100ms per action for better visibility
+            executable_path=chrome_path, # FORCE EXPLICIT BINARY
+            # No manual user_agent - Let Chrome set it
+            headless=False,
+            slow_mo=50, 
+            # No extra_http_headers - Let Chrome set them naturally
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--exclude-switches=enable-automation',
-                '--disable-dev-shm-usage',
                 '--no-sandbox',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-site-isolation-trials',
-                '--disable-features=UserAgentClientHint',
-                '--use-fake-ui-for-media-stream',
-                '--use-fake-device-for-media-stream',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding',
-                # Popup and modal blocking
-                '--disable-popup-blocking',
-                '--disable-notifications',
-                '--disable-infobars',
-                '--disable-extensions',
-                '--disable-default-apps',
-                '--no-first-run',
-                '--disable-features=TranslateUI',
-                '--disable-features=Translate',
-                '--disable-component-extensions-with-background-pages',
                 '--start-maximized',
-                # CDP endpoint for live browser
-                '--remote-debugging-port=9222'
             ],
             viewport=None,
-            permissions=[],  # Grant no permissions
-            geolocation={'latitude': 0, 'longitude': 0},  # Provide fake geolocation to avoid prompt
+            permissions=[],
+            geolocation={'latitude': 0, 'longitude': 0},
             ignore_https_errors=True
         )
         
@@ -598,13 +595,30 @@ async def run_full_flow_core(json_data: dict) -> dict:
             page = context.pages[0]
         else:
             page = await context.new_page()
-        
-        # Stealth + Popup blocking + CSS injection
-        await page.add_init_script("""
-            // Stealth
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            delete navigator.__proto__.webdriver;
             
+        # CLEAR COOKIES/STORAGE
+        try:
+            await context.clear_cookies()
+            await page.evaluate("try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}")
+            logger.info("ORCHESTRATOR: Session cleared")
+        except:
+            pass
+            
+        # NO STEALTH - Let Chrome be Chrome
+        # if STEALTH_AVAILABLE: ... removed ...
+        
+        # HUMAN NAVIGATION FLOW: Home -> Wait -> Product
+        # This confirms we are "real" to Akamai by loading the full site first
+        logger.info("ORCHESTRATOR: Navigating to Home Page first to establish session...")
+        try:
+            await page.goto(base_url, timeout=60000, wait_until='domcontentloaded')
+            logger.info("ORCHESTRATOR: Home page loaded. Waiting 5 seconds...")
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.warning(f"Failed to load home page (might be okay if product loads): {e}")
+
+        # Popup blocking + CSS injection
+        await page.add_init_script("""
             // Block popup functions
             window.alert = () => {};
             window.confirm = () => true;
@@ -974,35 +988,43 @@ async def run_full_flow_core(json_data: dict) -> dict:
             'phase': 'unknown',
             'error': str(e)
         }
-    
+
     finally:
         # Stop screenshot capture and cleanup
         if SCREENSHOT_SERVICE_AVAILABLE:
             screenshot_service.stop_capture()
             screenshot_service.unlock_browser()
             logger.info(f"ORCHESTRATOR: Screenshot service stopped and cleaned up")
-        
+
         logger.info(f"ORCHESTRATOR: Automation complete! Browser will stay open for 1 hour for inspection...")
-        
+
         await asyncio.sleep(3600)
 
-        # Cleanup
-        try:
-            if context:
+        # CLEANUP: Browser and Profile
+        if context:
+            try:
                 await context.close()
-            if playwright:
+                logger.info("Browser context closed")
+            except Exception as e:
+                logger.error(f"Error closing context: {e}")
+
+        if playwright:
+            try:
                 await playwright.stop()
-            logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Browser closed")
-        except Exception as e:
-            logger.error(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Cleanup error: {e}")
-        
-        # Delete browser profile directory to remove all cached data
-        try:
-            if 'profile_path' in locals() and os.path.exists(profile_path):
-                shutil.rmtree(profile_path)
-                logger.info(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Deleted browser profile: {profile_path}")
-        except Exception as e:
-            logger.warning(f"ORCHESTRATOR: [{datetime.now().strftime('%H:%M:%S')}] Failed to delete profile: {e}")
+                logger.info("Playwright stopped")
+            except Exception as e:
+                logger.error(f"Error stopping playwright: {e}")
+
+        # Force cleanup of temporary profile
+        if 'profile_path' in locals() and os.path.exists(profile_path):
+            try:
+                import shutil
+                # Give a small delay for file handles to release
+                await asyncio.sleep(1) 
+                shutil.rmtree(profile_path, ignore_errors=True)
+                logger.info(f"Cleaned up temporary profile: {profile_path}")
+            except Exception as e:
+                logger.warning(f"Could not remove temp profile {profile_path}: {e}")
 
 
 async def main():

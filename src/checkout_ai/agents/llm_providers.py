@@ -32,7 +32,19 @@ class GroqProvider(BaseLLMProvider):
             )
             content = response.choices[0].message.content
             try:
-                return json.loads(content)
+                parsed = json.loads(content)
+                # Ensure message field is plain text, not nested JSON
+                if isinstance(parsed, dict) and 'message' in parsed:
+                    msg = parsed['message']
+                    if isinstance(msg, str) and msg.strip().startswith('{'):
+                        try:
+                            # If message is JSON, extract the actual message
+                            nested = json.loads(msg)
+                            if 'message' in nested:
+                                parsed['message'] = nested['message']
+                        except:
+                            pass  # Keep original if parsing fails
+                return parsed
             except:
                 return {'text': content, 'message': content}
         except Exception as e:
@@ -56,7 +68,19 @@ class OpenAIProvider(BaseLLMProvider):
             )
             content = response.choices[0].message.content
             try:
-                return json.loads(content)
+                parsed = json.loads(content)
+                # Ensure message field is plain text, not nested JSON
+                if isinstance(parsed, dict) and 'message' in parsed:
+                    msg = parsed['message']
+                    if isinstance(msg, str) and msg.strip().startswith('{'):
+                        try:
+                            # If message is JSON, extract the actual message
+                            nested = json.loads(msg)
+                            if 'message' in nested:
+                                parsed['message'] = nested['message']
+                        except:
+                            pass  # Keep original if parsing fails
+                return parsed
             except:
                 return {'text': content, 'message': content}
         except Exception as e:

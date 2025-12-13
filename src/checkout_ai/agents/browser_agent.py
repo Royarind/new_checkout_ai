@@ -191,7 +191,30 @@ Note: Cookie banners, newsletters, chat widgets are handled automatically. Only 
 - Do not loop on the same failing action.
 - Do not change the user's plan; request help via `call_planner` instead.
 - Do not hallucinate data; use only tool-provided / plan-provided values.
-- **NEVER click navigation links** (Home, Shop, About, Contact, etc.).
+
+**CRITICAL: NEVER CLICK THESE ELEMENTS:**
+- ❌ **Navigation links**: Home, Shop, Products, Categories, Collections, About, Contact, Blog, etc.
+- ❌ **Promotional banners**: Sale, Offers, Deals, Discounts, New Arrivals, etc.
+- ❌ **Social media links**: Facebook, Instagram, Twitter, YouTube, etc.
+- ❌ **Footer links**: Privacy Policy, Terms, Shipping Info, Returns, FAQ, etc.
+- ❌ **Header menu items**: Any dropdown menus or category links in the header
+- ❌ **Product recommendations**: "You may also like", "Related products", "Customers also bought"
+- ❌ **Marketing popups**: Newsletter signups, discount offers (use `dismiss_popups()` instead)
+- ❌ **Account/Profile links**: My Account, Orders, Wishlist (unless explicitly in the current step)
+
+**ONLY click elements that are DIRECTLY part of the checkout flow:**
+- ✅ Add to Cart button
+- ✅ Checkout / Proceed to Checkout button
+- ✅ Continue / Next button during checkout
+- ✅ Variant selectors (color, size, etc.)
+- ✅ Shipping method radio buttons
+- ✅ Payment method selectors
+- ✅ Form submit buttons during checkout
+- ✅ Guest Checkout button
+- ✅ Cart icon/button (only when step says "Navigate to cart")
+
+**If you're unsure whether to click something, DON'T CLICK IT. Use `call_planner()` instead.**
+
 - **CRITICAL: Call fill tools WITHOUT parameters - they auto-get customer data:**
   - WRONG: `fill_contact(first_name="John")` or `fill_address(city="Sample City")`
   - CORRECT: `fill_contact()` and `fill_address()` with NO arguments

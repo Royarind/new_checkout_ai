@@ -42,7 +42,7 @@ class AddressService:
         
         async with aiosqlite.connect(self.db_path) as db:
             # If this is set as default, unset other defaults
-            if address.is_default:
+            if address.isDefault:
                 await db.execute("UPDATE addresses SET is_default = 0")
             
             await db.execute("""
@@ -51,9 +51,9 @@ class AddressService:
                     city, state, postal_code, country, phone, is_default
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                address_id, address.type, address.full_name, address.address_line1,
-                address.address_line2, address.city, address.state, address.postal_code,
-                address.country, address.phone, 1 if address.is_default else 0
+                address_id, address.type, address.fullName, address.addressLine1,
+                address.addressLine2, address.city, address.province, address.postalCode,
+                address.country, address.phone, 1 if address.isDefault else 0
             ))
             await db.commit()
         
@@ -71,15 +71,15 @@ class AddressService:
                     return Address(
                         id=row['id'],
                         type=row['type'],
-                        full_name=row['full_name'],
-                        address_line1=row['address_line1'],
-                        address_line2=row['address_line2'],
+                        fullName=row['full_name'],
+                        addressLine1=row['address_line1'],
+                        addressLine2=row['address_line2'],
                         city=row['city'],
-                        state=row['state'],
-                        postal_code=row['postal_code'],
+                        province=row['state'],
+                        postalCode=row['postal_code'],
                         country=row['country'],
                         phone=row['phone'],
-                        is_default=bool(row['is_default'])
+                        isDefault=bool(row['is_default'])
                     )
         return None
     
@@ -95,15 +95,15 @@ class AddressService:
                     addresses.append(Address(
                         id=row['id'],
                         type=row['type'],
-                        full_name=row['full_name'],
-                        address_line1=row['address_line1'],
-                        address_line2=row['address_line2'],
+                        fullName=row['full_name'],
+                        addressLine1=row['address_line1'],
+                        addressLine2=row['address_line2'],
                         city=row['city'],
-                        state=row['state'],
-                        postal_code=row['postal_code'],
+                        province=row['state'],
+                        postalCode=row['postal_code'],
                         country=row['country'],
                         phone=row['phone'],
-                        is_default=bool(row['is_default'])
+                        isDefault=bool(row['is_default'])
                     ))
         return addresses
     
@@ -117,35 +117,35 @@ class AddressService:
             if update.type is not None:
                 updates.append("type = ?")
                 values.append(update.type)
-            if update.full_name is not None:
+            if update.fullName is not None:
                 updates.append("full_name = ?")
-                values.append(update.full_name)
-            if update.address_line1 is not None:
+                values.append(update.fullName)
+            if update.addressLine1 is not None:
                 updates.append("address_line1 = ?")
-                values.append(update.address_line1)
-            if update.address_line2 is not None:
+                values.append(update.addressLine1)
+            if update.addressLine2 is not None:
                 updates.append("address_line2 = ?")
-                values.append(update.address_line2)
+                values.append(update.addressLine2)
             if update.city is not None:
                 updates.append("city = ?")
                 values.append(update.city)
-            if update.state is not None:
+            if update.province is not None:
                 updates.append("state = ?")
-                values.append(update.state)
-            if update.postal_code is not None:
+                values.append(update.province)
+            if update.postalCode is not None:
                 updates.append("postal_code = ?")
-                values.append(update.postal_code)
+                values.append(update.postalCode)
             if update.country is not None:
                 updates.append("country = ?")
                 values.append(update.country)
             if update.phone is not None:
                 updates.append("phone = ?")
                 values.append(update.phone)
-            if update.is_default is not None:
-                if update.is_default:
+            if update.isDefault is not None:
+                if update.isDefault:
                     await db.execute("UPDATE addresses SET is_default = 0")
                 updates.append("is_default = ?")
-                values.append(1 if update.is_default else 0)
+                values.append(1 if update.isDefault else 0)
             
             if updates:
                 values.append(address_id)

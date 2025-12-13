@@ -91,8 +91,24 @@ class AgentOrchestrator:
                  pass
 
         if url:
-            self.detected_country = detect_country_from_url(url)
-            logger.info(f"📍 Country detection for URL: {url}")
+            # PRIORITIZE CONFIG: Check if customer data has explicit country
+            config_country = None
+            if customer_data:
+                # check shipping info
+                ship = customer_data.get('shippingAddress', {})
+                country_raw = ship.get('country', '').lower()
+                if 'india' in country_raw or country_raw == 'in':
+                    config_country = 'IN'
+                elif 'united states' in country_raw or 'usa' in country_raw or country_raw == 'us':
+                    config_country = 'US'
+            
+            if config_country:
+                self.detected_country = config_country
+                logger.info(f"📍 Using configured country from address: {self.detected_country}")
+            else:
+                self.detected_country = detect_country_from_url(url)
+                logger.info(f"📍 Country detection for URL: {url}")
+            
             logger.info(f"📍 Detected country code: {self.detected_country}")
             
             if self.detected_country:

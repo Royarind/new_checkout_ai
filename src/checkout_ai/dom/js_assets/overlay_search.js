@@ -279,27 +279,27 @@
             }
         }
     }
-}
 
-if (matchedIndex !== null) {
-    // Determine action based on element type
-    const matchedElement = indexedElements.find(el => el.index === matchedIndex);
-    let action = 'click';
 
-    if (matchedElement) {
-        if (matchedElement.elementType === 'quantity_input') {
-            action = 'quantity_input';
-        } else if (matchedElement.elementType === 'quantity_dropdown') {
-            action = 'quantity_dropdown';
-        } else if (matchedElement.elementType === 'quantity_increase' || matchedElement.elementType === 'quantity_decrease') {
-            action = 'quantity_button';
-        } else if (matchedElement.elementType === 'cart_button') {
-            action = 'click';
+    if (matchedIndex !== null) {
+        // Determine action based on element type
+        const matchedElement = indexedElements.find(el => el.index === matchedIndex);
+        let action = 'click';
+
+        if (matchedElement) {
+            if (matchedElement.elementType === 'quantity_input') {
+                action = 'quantity_input';
+            } else if (matchedElement.elementType === 'quantity_dropdown') {
+                action = 'quantity_dropdown';
+            } else if (matchedElement.elementType === 'quantity_increase' || matchedElement.elementType === 'quantity_decrease') {
+                action = 'quantity_button';
+            } else if (matchedElement.elementType === 'cart_button') {
+                action = 'click';
+            }
         }
+
+        return { found: true, action: action, elementIndex: matchedIndex, allElements: indexedElements, phase: 'overlay' };
     }
 
-    return { found: true, action: action, elementIndex: matchedIndex, allElements: indexedElements, phase: 'overlay' };
-}
-
-return { found: false, phase: 'overlay' };
+    return { found: false, phase: 'overlay' }
 }

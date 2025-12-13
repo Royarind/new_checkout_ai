@@ -39,6 +39,37 @@ async def add_to_cart_tool() -> Dict[str, Any]:
     """Add product to cart"""
     from src.checkout_ai.legacy.phase1.add_to_cart_robust import add_to_cart_robust
     page = get_page()
+    
+    # 1. Pre-check: Is item out of stock?
+    stock_status = await page.evaluate("""
+        () => {
+            const bodyText = document.body.innerText.toLowerCase();
+            const keywords = ['out of stock', 'sold out', 'currently unavailable', 'notify me', 'item not available'];
+            for (const k of keywords) {
+                if (bodyText.includes(k) && !bodyText.includes('not ' + k)) {
+                    // Check visibility of specific OOS elements if possible, or just return true
+                    // To be safe, look for these strings in headings or buttons
+                    const elements = Array.from(document.querySelectorAll('h1, h2, span, div, button'));
+                    for (const el of elements) {
+                        if (el.textContent.toLowerCase().includes(k) && el.offsetParent) {
+                             return { outOfStock: true, reason: k };
+                        }
+                    }
+                }
+            }
+            return { outOfStock: false };
+        }
+    """)
+    
+    if stock_status.get('outOfStock'):
+        reason = stock_status.get('reason')
+        logger.warning(f"⛔ ITEM OUT OF STOCK detected: {reason}")
+        return {
+            "success": False, 
+            "error": f"Item is {reason.upper()}. Cannot add to cart.", 
+            "out_of_stock": True
+        }
+
     result = await add_to_cart_robust(page)
     return {"success": result.get('success', False), "message": result.get('content', '')}
 
@@ -359,7 +390,9 @@ async def click_element_tool(selector: str = None, text: str = None, x: int = No
     
     try:
         # Check for Login Page Trap: detecting "Checkout" clicks when already on Login
-        if text and any(k in text.lower() for k in ['checkout', 'proceed', 'continue']):
+        # Check for Login Page Trap: detecting "Checkout" clicks when already on Login
+        # NOTE: Removed 'continue' because it's needed FOR the login form itself!
+        if text and any(k in text.lower() for k in ['checkout', 'proceed']):
              url = page.url.lower()
              if 'login' in url or 'signin' in url:
                  print(f"⚠️ Bypass: Trying to click '{text}' but already on Login page. Marking success.")

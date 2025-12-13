@@ -1,197 +1,90 @@
 (args) => {
-    const variantValue = typeof args === 'object' && args !== null ? args.variantValue : args;
-    const containerSelector = typeof args === 'object' && args !== null ? args.containerSelector : null;
-
-    const normalize = (text) => text ? String(text).toLowerCase().trim().replace(/[^a-z0-9\s]/g, '') : '';
-    const normalizedVal = normalize(variantValue);
+    const { variantValue, containerSelector } = args;
+    const normalize = (text) => text ? text.toLowerCase().trim().replace(/[^a-z0-9]/g, '') : '';
+    const target = normalize(variantValue);
 
     // Helper to check visibility
-    const isVisible = (node) => {
-        if (!node || node.nodeType !== 1) return false;
-        const style = window.getComputedStyle(node);
-        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-        const rect = node.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return false;
-        return true;
+    const isVisible = (el) => {
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            rect.width > 0 &&
+            rect.height > 0;
     };
 
-    const match = (text) => {
-        if (!text) return false;
-        const t = normalize(text);
-
-        // Exact match
-        if (t === normalizedVal) return true;
-
-        // Multi-word match
-        const searchWords = normalizedVal.split(/\s+/).filter(w => w.length > 0);
-        const textWords = t.split(/\s+/).filter(w => w.length > 0);
-
-        if (searchWords.length >= 2) {
-            // First try exact phrase match
-            if (t.includes(normalizedVal)) {
-                return true;
-            }
-
-            // Then try all words present match
-            const hasAllWords = searchWords.every(word =>
-                textWords.some(textWord => textWord === word || textWord.includes(word) || word.includes(textWord))
-            );
-            if (hasAllWords) return true;
-        }
-
-        return false;
+    // Helper to score verification
+    const getScore = (el, text) => {
+        const normText = normalize(text);
+        if (normText === target) return 100;
+        if (normText.includes(target)) return 80; // "32 inch" includes "32"
+        if (target.includes(normText)) return 60;
+        return 0;
     };
 
-    // DOM tree search function
-    const searchDOMTree = (node, depth = 0) => {
-        if (!node || depth > 10) return null;
-        if (node.nodeType === 1 && !isVisible(node)) return null;
+    const container = containerSelector ? document.querySelector(containerSelector) : document.body;
+    if (!container) return { found: false };
 
-        if (node.nodeType === 1) {
-            const text = node.textContent?.trim();
-            const value = node.value;
-            const ariaLabel = node.getAttribute('aria-label');
-            const title = node.getAttribute('title');
-            const dataValue = node.getAttribute('data-value');
+    // Selectors for common variant elements (buttons, list items, divs with text)
+    // Added specific classes for Flipkart/Amazon/Myntra
+    const candidates = Array.from(container.querySelectorAll('button, li, div, ul > li, a, span, [role="button"], [class*="swatch"], [class*="variant"]'));
 
-            // Skip non-product elements
-            const skipPatterns = ['country', 'localization', 'currency', 'language', 'region', 'shipping', 'search', 'filter', 'sort', 'breadcrumb', 'navigation'];
-            const elementInfo = (node.id + ' ' + node.className + ' ' + (node.name || '')).toLowerCase();
-            const shouldSkip = skipPatterns.some(pattern => elementInfo.includes(pattern));
+    let bestMatch = null;
+    let bestScore = 0;
 
-            // CRITICAL: Skip navigation/header elements
-            let isInNavigation = false;
-            let checkParent = node;
-            let depth = 0;
-            while (checkParent && depth < 10) {
-                const tag = checkParent.tagName?.toLowerCase();
-                const role = checkParent.getAttribute('role');
-                const className = String(checkParent.className || '').toLowerCase();
+    for (const el of candidates) {
+        if (!isVisible(el)) continue;
 
-                if (tag === 'nav' || tag === 'header' ||
-                    role === 'navigation' ||
-                    className.includes('navigation') ||
-                    className.includes('header') ||
-                    className.includes('menu')) {
-                    isInNavigation = true;
-                    break;
-                }
-                checkParent = checkParent.parentElement;
-                depth++;
-            }
+        // Get all text sources
+        const texts = [
+            el.textContent,
+            el.getAttribute('aria-label'),
+            el.getAttribute('title'),
+            el.getAttribute('value'),
+            el.getAttribute('data-value')
+        ];
 
-            if (!shouldSkip && !isInNavigation) {
-                if (match(text) || match(value) || match(ariaLabel) || match(title) || match(dataValue)) {
-                    // CRITICAL: For links, require them to be in product area (y > 150)
-                    const rect = node.getBoundingClientRect();
-                    const isLink = node.tagName === 'A';
-
-                    if (isLink && rect.top < 150) {
-                        // Skip links in header area (top 150px)
-                        return null;
-                    }
-
-                    const isInteractive = node.tagName === 'BUTTON' ||
-                        (node.tagName === 'A' && rect.top >= 150) ||  // Only links below header
-                        node.tagName === 'INPUT' ||
-                        node.tagName === 'SELECT' ||
-                        node.onclick ||
-                        node.getAttribute('onclick') ||
-                        node.style.cursor === 'pointer' ||
-                        node.classList && node.classList.contains('clickable') ||
-                        node.classList && node.classList.contains('selectable') ||
-                        node.hasAttribute('role');
-
-                    if (isInteractive) {
-                        return node;
-                    }
-
-                    // Check parent elements
-                    let parent = node.parentElement;
-                    let parentDepth = 0;
-                    while (parent && parentDepth < 3) {
-                        const parentInteractive = parent.tagName === 'BUTTON' ||
-                            parent.tagName === 'A' ||
-                            parent.onclick ||
-                            parent.getAttribute('onclick') ||
-                            parent.style.cursor === 'pointer' ||
-                            parent.classList && parent.classList.contains('clickable') ||
-                            parent.classList && parent.classList.contains('selectable');
-
-                        if (parentInteractive) {
-                            return parent;
-                        }
-                        parent = parent.parentElement;
-                        parentDepth++;
-                    }
-                }
-            }
+        // Specific handling for Flipkart/Myntra tiles (often have nested info)
+        // If element has few children, it might be a button text wrapper
+        if (el.children.length < 3) {
+            // check inner text
         }
 
-        // Search children
-        const children = node.children || node.childNodes;
-        for (const child of children) {
-            const found = searchDOMTree(child, depth + 1);
-            if (found) return found;
-        }
+        for (const t of texts) {
+            if (!t) continue;
+            const score = getScore(el, t);
 
-        // Search Shadow DOM
-        if (node.shadowRoot) {
-            const found = searchDOMTree(node.shadowRoot, depth + 1);
-            if (found) return found;
-        }
+            // Boost score if element looks interactive
+            const isInteractive = el.tagName === 'BUTTON' ||
+                el.tagName === 'A' ||
+                el.getAttribute('role') === 'button' ||
+                el.className.includes('selected') ||
+                el.className.includes('active');
 
-        return null;
-    };
+            const finalScore = score + (isInteractive ? 10 : 0);
 
-    // Search in product-focused containers
-    const productContainers = [
-        'form[data-product-id]',
-        '.variant-selector',
-        '.shade-selector',
-        '[class*="product"]',
-        '[class*="variant"]',
-        '[class*="option"]',
-        '[class*="shade"]',
-        'main',
-        'body'
-    ];
-
-    for (const containerSelector of productContainers) {
-        const container = document.querySelector(containerSelector);
-        if (container) {
-            if (container.id === 'localization_form' || container.classList && container.classList.contains('localization')) {
-                continue;
-            }
-
-            const found = searchDOMTree(container);
-            if (found) {
-                if (found.id === 'LocalizationForm-Select' ||
-                    found.classList && found.classList.contains('country-picker') ||
-                    found.name === 'country_code') {
-                    continue;
-                }
-
-                found.setAttribute('data-dom-el', 'true');
-
-                let action = 'click';
-                if (found.tagName === 'SELECT') {
-                    action = 'select';
-                    for (const option of found.options) {
-                        if (match(option.text)) {
-                            return { found: true, action: 'select', value: option.value, phase: 'dom_tree' };
-                        }
-                    }
-                } else if (found.classList && found.classList.contains('dropdown') || found.classList && found.classList.contains('select') || found.hasAttribute('role') && found.getAttribute('role').includes('combobox')) {
-                    action = 'dropdown';
-                } else if (found.tagName === 'INPUT' && found.type === 'number') {
-                    action = 'quantity_input';
-                }
-
-                return { found: true, action: action, searchValue: variantValue, phase: 'dom_tree' };
+            if (finalScore > bestScore && finalScore > 50) { // Threshold
+                bestScore = finalScore;
+                bestMatch = el;
             }
         }
     }
 
-    return { found: false, phase: 'dom_tree' };
+    if (bestMatch) {
+        // Generate unique selector or index
+        // We'll use a data attribute to mark it for the python side to click
+        const uniqueId = 'v_' + Math.random().toString(36).substr(2, 9);
+        bestMatch.setAttribute('data-dom-el', uniqueId);
+
+        return {
+            found: true,
+            action: 'click',
+            value: uniqueId, // Return ID for selector
+            text: bestMatch.textContent,
+            score: bestScore
+        };
+    }
+
+    return { found: false };
 }

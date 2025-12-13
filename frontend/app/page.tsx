@@ -1,8 +1,8 @@
 "use client";
 
-import ChatInterface from "@/components/ChatInterface";
 import ProgressTimeline from "@/components/ProgressTimeline";
 import ProductCard from "@/components/ProductCard";
+import ProductDetailsPreview from "@/components/ProductDetailsPreview";
 import { Play } from "lucide-react";
 import { useState } from "react";
 
@@ -10,31 +10,40 @@ export default function Home() {
   const [isAutomationRunning, setIsAutomationRunning] = useState(false);
 
   const startAutomation = async () => {
-    try {
-      setIsAutomationRunning(true);
-      const response = await fetch("http://localhost:8000/api/data/current");
-      const data = await response.json();
-
-      await fetch("http://localhost:8000/api/automation/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ json_data: data.json_data }),
-      });
-    } catch (error) {
-      console.error("Error starting automation:", error);
-      setIsAutomationRunning(false);
-    }
+    // try {
+    //   setIsAutomationRunning(true);
+    //
+    //   // Fetch from LLM agent instead of legacy agent
+    //   const response = await fetch("http://localhost:8000/api/chat/llm/data");
+    //   const data = await response.json();
+    //
+    //   // Send LLM-generated checkout data to automation
+    //   await fetch("http://localhost:8000/api/automation/start", {
+    //     method: "POST",
+    //     headers: { "Content-Type": "application/json" },
+    //     body: JSON.stringify(data.checkout_data),
+    //   });
+    // } catch (error) {
+    //   console.error("Error starting automation:", error);
+    //   setIsAutomationRunning(false);
+    // }
+    alert("Automation trigger is currently disabled as the chat system has been removed.");
   };
 
   return (
     <div className="flex h-screen">
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        <ChatInterface />
+      {/* Main Area (formerly Chat) */}
+      <div className="flex-1 flex flex-col items-center justify-center text-text-secondary">
+        <h2 className="text-2xl font-bold mb-2">Checkout Automation</h2>
+        <p>Chat system has been removed.</p>
+        <p className="text-sm mt-4">Please use the controls on the right to manage state.</p>
       </div>
 
       {/* Right Sidebar */}
       <div className="w-96 border-l border-white/10 p-6 space-y-6 overflow-y-auto">
+        {/* Product Details Preview */}
+        <ProductDetailsPreview />
+
         {/* Progress Timeline */}
         <ProgressTimeline />
 

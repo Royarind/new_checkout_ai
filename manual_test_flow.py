@@ -13,7 +13,7 @@ from main_orchestrator import run_full_flow
 from dotenv import load_dotenv
 
 # Setup basic logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Load env

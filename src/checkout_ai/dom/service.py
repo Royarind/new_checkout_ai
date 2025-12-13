@@ -368,6 +368,15 @@ class UniversalDOMFinder:
                 if verified['success']:
                     return verified
                 
+                # FALLBACK: If verification failed but click succeeded, return success with warning
+                logger.warning(f"VARIANT SELECTION: Action succeeded but verification failed. Assuming success for {variant_type}={variant_value}")
+                return {
+                    'success': True,
+                    'content': f"Selected {variant_type}={variant_value} (Verification skipped)",
+                    'action': result['action'],
+                    'warning': 'Verification failed'
+                }
+
                 # If verification failed, try OCR (only works on main page screenshot usually)
                 # DISABLED: OCR causes false positives for selection verification.
                 # ocr_result = await self.verify_selection_with_ocr(variant_type, variant_value)

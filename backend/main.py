@@ -22,7 +22,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import project services
-from backend.services.conversation_agent import ConversationAgent
+# from backend.services.langchain_service import langchain_service # DELETED
+# from backend.services.langchain_service import langchain_service # DELETED
+# from backend.services.conversation_agent_legacy import ConversationAgent # DELETED
+from backend.services.otp_handler import otp_handler
 from backend.services.progress_tracker import progress_tracker
 from backend.services.address_service import address_service
 from backend.services.wallet_service import wallet_service
@@ -30,6 +33,7 @@ from backend.models.address import AddressCreate, AddressUpdate
 from backend.models.wallet import CardCreate, UPICreate
 from main_orchestrator import run_full_flow
 from backend.services.screenshot_service import screenshot_service
+# from backend.services.conversation_agent_legacy import LLMClient # DELETED
 
 app = FastAPI(title="CARTMIND-AI API", version="1.0.0")
 
@@ -43,23 +47,10 @@ app.add_middleware(
 )
 
 # Global instances
-conversation_agent = ConversationAgent()
 active_websockets: List[WebSocket] = []
 
 # Pydantic models for request/response
-class ChatMessage(BaseModel):
-    message: str
-
-class ChatResponse(BaseModel):
-    ai_message: str
-    json_data: Dict[str, Any]
-    state: str
-
-class LLMConfig(BaseModel):
-    provider: str
-    model: str
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+# Chat models removed
 
 class AutomationRequest(BaseModel):
     json_data: Dict[str, Any]
@@ -75,57 +66,80 @@ class AutomationStatus(BaseModel):
 async def root():
     return {"message": "CARTMIND-AI API is running", "version": "1.0.0"}
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(message: ChatMessage):
-    """Send a message to the conversation agent and get AI response"""
+# Chat endpoints removed
+
+# Initialize Legacy Agent removed
+# conversation_agent = ConversationAgent()
+
+# ============================================
+# LEGACY CHAT ENDPOINTS (Removed)
+# ============================================
+
+# @app.post("/api/chat/llm") - REMOVED
+# @app.post("/api/chat/llm/reset") - REMOVED
+# @app.get("/api/chat/llm/data") - REMOVED
+
+
+
+
+# ============================================
+# OTP HANDLER ENDPOINTS
+# ============================================
+
+@app.post("/api/otp/submit")
+async def submit_otp(data: Dict[str, Any]):
+    """User submitted OTP/password"""
+    session_id = data.get("session_id", "default")
+    value = data.get("value", "")
+    
+    success = await otp_handler.submit_input(session_id, value)
+    if success:
+        return {"message": "Input submitted successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="No pending prompt found")
+
+@app.post("/api/otp/cancel")
+async def cancel_otp(data: Dict[str, Any]):
+    """User cancelled OTP/password prompt"""
+    session_id = data.get("session_id", "default")
+    
+    success = await otp_handler.cancel_input(session_id)
+    if success:
+        return {"message": "Prompt cancelled"}
+    else:
+        raise HTTPException(status_code=404, detail="No pending prompt found")
+
+@app.get("/api/otp/pending/{session_id}")
+async def get_pending_otp(session_id: str):
+    """Get pending OTP prompt for session"""
+    prompt = otp_handler.get_pending_prompt(session_id)
+    if prompt:
+        return prompt
+    else:
+        return {"has_pending": False}
+
+# ============================================
+# PRODUCT INFO ENDPOINTS
+# ============================================
+
+@app.get("/api/product/info")
+async def get_product_info(url: str):
+    """Get product thumbnail and info from URL"""
     try:
-        result = await conversation_agent.process_message(message.message)
-        
-        return ChatResponse(
-            ai_message=result.get("message", result.get("ai_message", "")),
-            json_data=conversation_agent.json_data,
-            state=conversation_agent.state
-        )
+        from backend.services.product_scraper import extract_product_info
+        info = extract_product_info(url)
+        return info
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "thumbnail": None,
+            "title": None,
+            "price": None,
+            "error": str(e)
+        }
 
-@app.get("/api/chat/history")
-async def get_chat_history():
-    """Get conversation history"""
-    return {"history": conversation_agent.history}
 
-@app.post("/api/chat/reset")
-async def reset_chat():
-    """Reset conversation and start fresh"""
-    conversation_agent.reset()
-    return {"message": "Conversation reset successfully"}
 
-@app.get("/api/config/llm", response_model=LLMConfig)
-async def get_llm_config():
-    """Get current LLM configuration from .env"""
-    from backend.api.llm_config_api import get_session_llm_config
-    
-    config = get_session_llm_config()
-    if not config:
-        raise HTTPException(status_code=404, detail="No LLM configuration found")
-    
-    return LLMConfig(
-        provider=config.get("provider", ""),
-        model=config.get("model", ""),
-        api_key="***" if config.get("api_key") else None,  # Mask API key
-        base_url=config.get("base_url")
-    )
-
-@app.get("/api/data/current")
-async def get_current_data():
-    """Get current JSON data being built"""
-    return {
-        "json_data": conversation_agent.json_data,
-        "state": conversation_agent.state,
-        "detected_variants": conversation_agent.detected_variants
-    }
+# LLM Config endpoint removed
 
 @app.post("/api/automation/start")
 async def start_automation(request: AutomationRequest):
@@ -181,123 +195,10 @@ async def live_browser_websocket(websocket: WebSocket):
         print(f"Live browser WebSocket error: {e}")
         screenshot_service.disconnect_client(websocket)
 
-
 # ============================================
 # DATA MANAGEMENT ENDPOINTS
 # ============================================
 
-@app.get("/api/data/structured")
-async def get_structured_data():
-    """Get structured data from current JSON"""
-    json_data = conversation_agent.json_data
-    
-    # Extract structured sections
-    product = {}
-    shipping = {}
-    billing = {}
-    payment = {}
-    
-    if "tasks" in json_data and len(json_data["tasks"]) > 0:
-        task = json_data["tasks"][0]
-        product = {
-            "url": task.get("url"),
-            "name": task.get("productName"),
-            "variants": task.get("variants", {}),
-            "quantity": task.get("quantity", 1)
-        }
-    
-    if "customer" in json_data:
-        customer = json_data["customer"]
-        if "shippingAddress" in customer:
-            shipping = customer["shippingAddress"]
-        if "billingAddress" in customer:
-            billing = customer["billingAddress"]
-        if "paymentMethod" in customer:
-            payment = customer["paymentMethod"]
-    
-    return {
-        "product": product,
-        "shipping": shipping,
-        "billing": billing,
-        "payment": payment,
-        "state": conversation_agent.state,
-        "full_json": json_data
-    }
-
-@app.put("/api/data/edit")
-async def edit_data(updates: Dict[str, Any]):
-    """Edit specific fields in the JSON data"""
-    try:
-        # Deep merge updates into existing data
-        def deep_update(base, updates):
-            for key, value in updates.items():
-                if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-                    deep_update(base[key], value)
-                else:
-                    base[key] = value
-        
-        deep_update(conversation_agent.json_data, updates)
-        return {"success": True, "json_data": conversation_agent.json_data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/session/new")
-async def new_session(data: Optional[Dict[str, Any]] = None):
-    """Start a new session"""
-    conversation_agent.reset()
-    if data:
-        conversation_agent.json_data = data
-    return {"success": True, "message": "New session started"}
-
-@app.post("/api/session/load-address/{address_id}")
-async def load_address(address_id: str, address_type: str = "shipping"):
-    """Load address from address book into session"""
-    address = await address_service.get_address(address_id)
-    if not address:
-        raise HTTPException(status_code=404, detail="Address not found")
-    
-    # Convert to dict and add to JSON
-    address_dict = {
-        "fullName": address.full_name,
-        "addressLine1": address.address_line1,
-        "addressLine2": address.address_line2,
-        "city": address.city,
-        "state": address.state,
-        "postalCode": address.postal_code,
-        "country": address.country,
-        "phone": address.phone
-    }
-    
-    if "customer" not in conversation_agent.json_data:
-        conversation_agent.json_data["customer"] = {}
-    
-    if address_type == "shipping":
-        conversation_agent.json_data["customer"]["shippingAddress"] = address_dict
-    elif address_type == "billing":
-        conversation_agent.json_data["customer"]["billingAddress"] = address_dict
-    
-    return {"success": True, "address": address_dict}
-
-@app.post("/api/session/load-payment/{method_id}")
-async def load_payment(method_id: str):
-    """Load payment method from wallet into session (decrypted)"""
-    method = await wallet_service.get_payment_method(method_id, decrypt=True)
-    if not method:
-        raise HTTPException(status_code=404, detail="Payment method not found")
-    
-    if "customer" not in conversation_agent.json_data:
-        conversation_agent.json_data["customer"] = {}
-    
-    conversation_agent.json_data["customer"]["paymentMethod"] = {
-        "type": method["type"],
-        "data": method.get("decrypted_data", {})
-    }
-    
-    return {"success": True, "method_type": method["type"]}
-
-# ============================================
-# ADDRESS BOOK ENDPOINTS
-# ============================================
 
 @app.post("/api/addresses")
 async def create_address(address: AddressCreate):

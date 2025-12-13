@@ -78,63 +78,64 @@ class WalletService:
         card_id = str(uuid.uuid4())
         
         # Prepare data for encryption
+        # Prepare data for encryption
         card_data = {
-            "card_number": card.card_number,
-            "card_holder": card.card_holder,
-            "expiry_month": card.expiry_month,
-            "expiry_year": card.expiry_year,
-            "cvv": card.cvv
+            "cardNumber": card.cardNumber,
+            "cardHolder": card.cardHolder,
+            "expiryMonth": card.expiryMonth,
+            "expiryYear": card.expiryYear,
+            "cardCVV": card.cardCVV
         }
         
         encrypted = self._encrypt_data(card_data)
-        masked = self._mask_card(card.card_number)
-        label = card.label or f"Card ending in {card.card_number[-4:]}"
+        masked = self._mask_card(card.cardNumber)
+        label = card.label or f"Card ending in {card.cardNumber[-4:]}"
         
         async with aiosqlite.connect(self.db_path) as db:
             # If this is set as default, unset other defaults
-            if card.is_default:
+            if card.isDefault:
                 await db.execute("UPDATE payment_methods SET is_default = 0")
             
             await db.execute("""
                 INSERT INTO payment_methods (
                     id, type, encrypted_data, label, masked_data, is_default
                 ) VALUES (?, ?, ?, ?, ?, ?)
-            """, (card_id, "card", encrypted, label, masked, 1 if card.is_default else 0))
+            """, (card_id, "card", encrypted, label, masked, 1 if card.isDefault else 0))
             await db.commit()
         
         return PaymentMethod(
             id=card_id,
             type="card",
             label=label,
-            masked_data=masked,
-            is_default=card.is_default
+            maskedData=masked,
+            isDefault=card.isDefault
         )
     
     async def add_upi(self, upi: UPICreate) -> PaymentMethod:
         """Add a new UPI payment method"""
         upi_id = str(uuid.uuid4())
         
-        upi_data = {"upi_id": upi.upi_id}
+        upi_data = {"upiId": upi.upiId}
         encrypted = self._encrypt_data(upi_data)
-        label = upi.label or upi.upi_id
+        label = upi.label or upi.upiId
         
         async with aiosqlite.connect(self.db_path) as db:
-            if upi.is_default:
+            if upi.isDefault:
                 await db.execute("UPDATE payment_methods SET is_default = 0")
             
             await db.execute("""
                 INSERT INTO payment_methods (
                     id, type, encrypted_data, label, masked_data, is_default
                 ) VALUES (?, ?, ?, ?, ?, ?)
-            """, (upi_id, "upi", encrypted, label, upi.upi_id, 1 if upi.is_default else 0))
+            """, (upi_id, "upi", encrypted, label, upi.upiId, 1 if upi.isDefault else 0))
             await db.commit()
         
         return PaymentMethod(
             id=upi_id,
             type="upi",
             label=label,
-            masked_data=upi.upi_id,
-            is_default=upi.is_default
+            maskedData=upi.upiId,
+            isDefault=upi.isDefault
         )
     
     async def list_payment_methods(self) -> List[PaymentMethod]:
@@ -150,8 +151,8 @@ class WalletService:
                         id=row['id'],
                         type=row['type'],
                         label=row['label'],
-                        masked_data=row['masked_data'],
-                        is_default=bool(row['is_default'])
+                        maskedData=row['masked_data'],
+                        isDefault=bool(row['is_default'])
                     ))
         return methods
     
@@ -168,13 +169,13 @@ class WalletService:
                         "id": row['id'],
                         "type": row['type'],
                         "label": row['label'],
-                        "masked_data": row['masked_data'],
-                        "is_default": bool(row['is_default'])
+                        "maskedData": row['masked_data'],
+                        "isDefault": bool(row['is_default'])
                     }
                     
                     if decrypt:
                         decrypted = self._decrypt_data(row['encrypted_data'])
-                        result["decrypted_data"] = decrypted
+                        result["decryptedData"] = decrypted
                     
                     return result
         return None
